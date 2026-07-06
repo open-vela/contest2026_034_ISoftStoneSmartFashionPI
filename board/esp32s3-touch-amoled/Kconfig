@@ -1,0 +1,64 @@
+#
+# For a description of the syntax of this configuration file,
+# see the file kconfig-language.txt in the NuttX tools repository.
+#
+
+if ARCH_BOARD_ESP32S3_TOUCH_AMOLED
+
+config ESP32S3_WATCH_AMOLED_CO5300
+	bool "Enable ESP32-S3 AMOLED"
+	default n
+	select LCD
+	select LCD_CO5300
+	---help---
+		Enable board AMOLED support, IC is AMOLED_CO5300.
+
+
+config ESP32S3_WATCH_TOUCHSCREEN_FT3168
+    bool "Enable Board Touchscreen"
+    default n
+    select INPUT
+    select INPUT_TOUCHSCREEN
+    select SCHED_WORKQUEUE
+    select SCHED_LPWORK
+    ---help---
+        Enable board touchscreen support, IC is: FT3168
+
+menu "Board Touchscreen Configuration"
+	depends on ESP32S3_WATCH_TOUCHSCREEN_FT3168
+
+config ESP32S3_BOARD_TOUCHSCREEN_PATH
+	string "Touchscreen Path for VFS"
+	default "/dev/input0"
+
+config ESP32S3_BOARD_TOUCHSCREEN_WIDTH
+	int "Touchscreen Width"
+	default 410
+	depends on ESP32S3_WATCH_TOUCHSCREEN_FT3168
+
+config ESP32S3_BOARD_TOUCHSCREEN_HEIGHT
+	int "Touchscreen Height"
+	default 502
+	depends on ESP32S3_WATCH_TOUCHSCREEN_FT3168
+
+config ESP32S3_BOARD_TOUCHSCREEN_SAMPLE_CACHES
+	int "Touchscreen Sample Cache Number"
+	default 64
+
+config ESP32S3_BOARD_TOUCHSCREEN_SAMPLE_DELAYS
+	int "Touchscreen Sample Delay Ticks"
+	default 20
+
+config ESP32S3_BOARD_TOUCHSCREEN_X_MIRROR
+	bool "Touchscreen X Mirror"
+	default y
+	depends on ESP32S3_WATCH_TOUCHSCREEN_FT3168
+
+config ESP32S3_BOARD_TOUCHSCREEN_Y_MIRROR
+	bool "Touchscreen Y Mirror"
+	default n
+	depends on ESP32S3_WATCH_TOUCHSCREEN_FT3168
+
+endmenu # Touchscreen Configuration
+
+endif # ARCH_BOARD_ESP32S3_TOUCH_AMOLED

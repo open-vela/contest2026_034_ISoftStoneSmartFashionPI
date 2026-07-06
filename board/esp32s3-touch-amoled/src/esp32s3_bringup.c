@@ -1,0 +1,414 @@
+/****************************************************************************
+ * boards/xtensa/esp32s3/esp32s3-touch-amoled/src/esp32s3_bringup.c
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.  The
+ * ASF licenses this file to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance with the
+ * License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
+ * License for the specific language governing permissions and limitations
+ * under the License.
+ *
+ ****************************************************************************/
+
+/****************************************************************************
+ * Included Files
+ ****************************************************************************/
+
+#include <nuttx/config.h>
+
+#include <stdio.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <syslog.h>
+#include <sys/stat.h>
+#include <sys/ioctl.h>
+#include <sys/types.h>
+#include <syslog.h>
+#include <debug.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+#include <errno.h>
+#include <time.h>
+#include <nuttx/fs/fs.h>
+
+#ifdef CONFIG_ESP32S3_TIMER
+#  include "esp32s3_board_tim.h"
+#endif
+
+#ifdef CONFIG_ESP32S3_WIFI
+#  include "esp32s3_board_wlan.h"
+#endif
+
+#ifdef CONFIG_ESP32S3_BLE
+#  include "esp32s3_ble.h"
+#endif
+
+#ifdef CONFIG_ESP32S3_WIFI_BT_COEXIST
+#  include "esp32s3_wifi_adapter.h"
+#endif
+
+#ifdef CONFIG_ESP32S3_RT_TIMER
+#  include "esp32s3_rt_timer.h"
+#endif
+
+#ifdef CONFIG_ESP32S3_I2C
+#  include "esp32s3_i2c.h"
+#endif
+
+#ifdef CONFIG_ESP32S3_I2S
+#  include "esp32s3_i2s.h"
+#endif
+
+#ifdef CONFIG_WATCHDOG
+#  include "esp32s3_board_wdt.h"
+#endif
+
+#ifdef CONFIG_INPUT_BUTTONS
+#  include <nuttx/input/buttons.h>
+#endif
+
+#ifdef CONFIG_RTC_PCF85063
+#  include <nuttx/timers/pcf85063.h>
+#endif
+
+#ifdef CONFIG_ESP32S3_SPI
+#  include "esp32s3_spi.h"
+#endif
+
+#ifdef CONFIG_LCD_DEV
+#  include <nuttx/board.h>
+#  include <nuttx/lcd/lcd_dev.h>
+#endif
+
+#ifdef CONFIG_ESP32S3_SDMMC
+#include "esp32s3_board_sdmmc.h"
+#endif
+
+#ifdef CONFIG_ESP32S3_WATCH_SENSOR_QMI8658
+#  include <nuttx/sensors/qmi8658.h>
+#endif
+
+#include "esp32s3_gpio.h"
+
+#include "esp32s3-touch-amoled.h"
+
+#ifdef CONFIG_ESP32S3_FLASH_MODE_OCT
+void esp32s3_bsp_opiflash_set_required_regs(void)
+{
+}
+#endif
+
+/****************************************************************************
+ * Public Functions
+ ****************************************************************************/
+
+/****************************************************************************
+ * Name: esp32s3_bringup
+ *
+ * Description:
+ *   Perform architecture-specific initialization
+ *
+ *   CONFIG_BOARD_LATE_INITIALIZE=y :
+ *     Called from board_late_initialize().
+ *
+ *   CONFIG_BOARD_LATE_INITIALIZE=n && CONFIG_BOARDCTL=y :
+ *     Called from the NSH library
+ *
+ ****************************************************************************/
+
+int esp32s3_bringup(void)
+{
+  int ret;
+
+#ifdef CONFIG_FS_PROCFS
+  /* Mount the procfs file system */
+
+  ret = nx_mount(NULL, "/proc", "procfs", 0, NULL);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to mount procfs at /proc: %d\n", ret);
+    }
+#endif
+
+#ifdef CONFIG_FS_TMPFS
+  /* Mount the tmpfs file system */
+
+  ret = nx_mount(NULL, CONFIG_LIBC_TMPDIR, "tmpfs", 0, NULL);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to mount tmpfs at %s: %d\n",
+             CONFIG_LIBC_TMPDIR, ret);
+    }
+#endif
+
+#ifdef CONFIG_ESP32S3_TIMER
+  /* Configure general purpose timers */
+
+  ret = board_tim_init();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "Failed to initialize timers: %d\n", ret);
+    }
+#endif
+
+#ifdef CONFIG_ESP32S3_RT_TIMER
+  ret = esp32s3_rt_timer_init();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "Failed to initialize RT timer: %d\n", ret);
+    }
+#endif
+
+#ifdef CONFIG_WATCHDOG
+  /* Configure watchdog timer */
+
+  ret = board_wdt_init();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "Failed to initialize watchdog timer: %d\n", ret);
+    }
+#endif
+
+#ifdef CONFIG_I2C_DRIVER
+  /* Configure I2C peripheral interfaces */
+
+  ret = board_i2c_init();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "Failed to initialize I2C driver: %d\n", ret);
+    }
+#endif /*CONFIG_I2C_DRIVER*/
+
+#ifdef CONFIG_RTC_PCF85063
+  struct i2c_master_s *i2c;
+  
+  i2c = esp32s3_i2cbus_initialize(ESP32S3_I2C0);
+  if (i2c == NULL)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to get I2C bus\n");
+    }
+  else
+    {
+      ret = pcf85063_rtc_initialize(i2c);
+      if (ret < 0)
+        {
+          syslog(LOG_ERR, "ERROR: Failed to initialize PCF85063 RTC: %d\n", ret);
+        }
+      else
+        {
+          clock_synchronize(NULL);
+          setenv("TZ", "CST-8", 1);
+          tzset();
+        }
+    }
+#endif /*CONFIG_RTC_PCF85063*/
+
+#ifdef CONFIG_INPUT_BUTTONS
+  /* Register the BUTTON driver */
+  ret = btn_lower_initialize("/dev/buttons");
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "Failed to initialize button driver: %d\n", ret);
+    }
+#endif /*CONFIG_INPUT_BUTTONS*/
+
+
+#ifdef CONFIG_AXP2101
+  ret = board_axp2101_initialize();    // done
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: board_axp2101_initialize failed: %d\n", ret);
+    }
+#endif /*CONFIG_AXP2101*/
+
+
+#ifdef CONFIG_ESP32S3_SPIFLASH
+  ret = board_spiflash_init();  // done  soc内置1M spi flash
+  if (ret)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to initialize SPI Flash\n");
+    }
+#endif
+
+#ifdef CONFIG_ESP32S3_WIRELESS
+#ifdef CONFIG_ESP32S3_WIFI_BT_COEXIST
+  ret = esp32s3_wifi_bt_coexist_init();
+  if (ret)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to initialize Wi-Fi and BT coexist\n");
+    }
+#endif /*CONFIG_ESP32S3_WIFI_BT_COEXIST*/
+#ifdef CONFIG_ESP32S3_BLE
+  ret = esp32s3_ble_initialize();    // done
+  if (ret)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to initialize BLE\n");
+    }
+#endif /*CONFIG_ESP32S3_BLE*/
+
+#ifdef CONFIG_ESP32S3_WIFI
+  ret = board_wlan_init();     // done
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to initialize wireless subsystem=%d\n",
+             ret);
+    }
+#endif /*CONFIG_ESP32S3_WIFI*/
+#endif /*CONFIG_ESP32S3_WIRELESS*/
+
+#if defined(CONFIG_DEV_GPIO) && !defined(CONFIG_GPIO_LOWER_HALF)
+  ret = esp32s3_gpio_init();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "Failed to initialize GPIO Driver: %d\n", ret);
+    }
+#endif
+
+#ifdef CONFIG_ESP32S3_WATCH_SENSOR_QMI8658
+  ret = esp32s3_qmi8658_initialize();    // done
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to register QMI8658 IMU: %d\n", ret);
+    }
+#endif /*CONFIG_ESP32S3_WATCH_SENSOR_QMI8658*/
+
+#ifdef CONFIG_ESP32S3_WATCH_AMOLED_CO5300
+  ret = board_amoled_initialize();   // done
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to initialize LCD.\n");
+      return ret;
+    }
+#ifdef CONFIG_LCD_DEV
+  ret = lcddev_register(0);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: lcddev_register() failed: %d\n", ret);
+    }
+#endif /*CONFIG_LCD_DEV*/
+#endif /*CONFIG_ESP32S3_WATCH_AMOLED_CO5300*/
+
+#ifdef CONFIG_ESP32S3_WATCH_TOUCHSCREEN_FT3168
+  ret = board_touchscreen_initialize();    // done
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "Failed to initialize touchscreen driver\n");
+    }
+#endif /*CONFIG_ESP32S3_WATCH_TOUCHSCREEN_FT3168*/
+
+#ifdef CONFIG_ESP32S3_I2S
+#  ifdef CONFIG_ESP32S3_I2S1
+  struct i2c_master_s *i2c_audio;
+  struct i2s_dev_s *i2s_audio;
+  i2s_audio = esp32s3_i2sbus_initialize(ESP32S3_I2S1);
+  if (i2s_audio == NULL)
+    {
+      printf("Failed to initialize I2S%d\n", ESP32S3_I2S1);
+    }
+   
+  i2c_audio = esp32s3_i2cbus_initialize(ESP32S3_I2C0);
+  if (i2c_audio == NULL)
+    {
+      printf("Failed to initialize I2C%d\n", ESP32S3_I2C0);
+    }
+
+#    ifdef CONFIG_AUDIO_ES8311
+  /* Configure ES8311 audio on I2C0 and I2S1 */
+  esp32s3_configgpio(SPEAKER_ENABLE_GPIO, OUTPUT);
+  esp32s3_gpiowrite(SPEAKER_ENABLE_GPIO, true);
+
+  printf(">>> ES8311: I2C0 addr=0x%02x freq=%d I2S1 <<<\n",
+         ES8311_I2C_ADDR, ES8311_I2C_FREQ);
+
+  ret = esp32s3_es8311_initialize(i2c_audio, i2s_audio);
+  if (ret != OK)
+    {
+      printf(">>> ES8311: INIT FAILED ret=%d <<<\n", ret);
+    }
+  else
+    {
+      printf(">>> ES8311: INIT OK <<<\n");
+    }
+#    endif /* CONFIG_AUDIO_ES8311 */
+
+#   ifdef CONFIG_AUDIO_ES7210
+  ret = esp32s3_es7210_initialize(i2c_audio, i2s_audio);
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to initialize ES7210: %d\n", ret);
+    }
+#   endif
+
+#  endif /* CONFIG_ESP32S3_I2S1 */
+#endif /* CONFIG_ESP32S3_I2S */
+
+#ifdef CONFIG_ESP32S3_SDMMC
+  /* Create mount point for SD card */
+  ret = mkdir("/mnt", 0755);
+  if (ret < 0 && errno != EEXIST)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to create /mnt: %d\n", ret);
+    }
+
+  ret = mkdir("/mnt/sd", 0755);
+  if (ret < 0 && errno != EEXIST)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to create /mnt/sd: %d\n", ret);
+    }
+
+ /* SD initialize */
+  syslog(LOG_INFO, "Initializing SDMMC...\n");
+  ret = board_sdmmc_initialize();                    // done
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to initialize SDMMC: %d\n", ret);
+    }
+  else
+    {
+      syslog(LOG_INFO, "SDMMC initialized successfully\n");
+    }
+
+  /* Wait for SD card to be ready and try to mount with retries */
+  syslog(LOG_INFO, "Waiting for SD card...\n");
+  usleep(1000000);  /* Wait 1s for SD card to be ready */
+  
+  int mount_retries;
+  for (mount_retries = 0; mount_retries < 3; mount_retries++)
+    {
+      syslog(LOG_INFO, "Mount attempt %d...\n", mount_retries + 1);
+      ret = nx_mount("/dev/mmcsd1", "/mnt/sd", "vfat", 0, NULL);
+      if (ret == OK)
+        {
+          syslog(LOG_INFO, "SD card mounted at /mnt/sd\n");
+          break;
+        }
+      
+      syslog(LOG_ERR, "ERROR: Failed to mount SD card (attempt %d): %d\n", 
+             mount_retries + 1, ret);
+      
+      if (mount_retries < 2)
+        {
+          usleep(200000);  /* Wait 200ms before retry */
+        }
+    }
+#endif /* CONFIG_ESP32S3_SDMMC */
+
+  /* If we got here then perhaps not all initialization was successful, but
+   * at least enough succeeded to bring-up NSH with perhaps reduced
+   * capabilities.
+   */
+
+  UNUSED(ret);
+  return OK;
+}
