@@ -1,0 +1,166 @@
+/****************************************************************************
+ * apps/watch/apps/launcher/launcher.c
+ *
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.  The
+ * ASF licenses this file to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance with the
+ * License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+ * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
+ * License for the specific language governing permissions and limitations
+ * under the License.
+ *
+ ****************************************************************************/
+
+/****************************************************************************
+ * Included Files
+ ****************************************************************************/
+
+#include <nuttx/config.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+#include "launcher.h"
+#include "../boot/boot_logo.h"
+#include "../boot/boot_animation.h"
+#include "../common/watch_pages.h"
+
+/****************************************************************************
+ * Pre-processor Definitions
+ ****************************************************************************/
+
+#define LOGO_DISPLAY_TIME      1000   /* 开机logo显示时间(ms) */
+#define ANIMATION_DISPLAY_TIME 9000   /* 开机动画显示时间(ms) */
+
+/****************************************************************************
+ * Private Data
+ ****************************************************************************/
+
+typedef enum
+{
+  STATE_INIT,            /* 初始状态 */
+  STATE_SHOW_LOGO,       /* 显示logo状态 */
+  STATE_SHOW_ANIM,       /* 显示动画状态 */
+  STATE_SHOW_EXPRESSION, /* 显示表情页面状态 */
+  STATE_DONE             /* 完成状态 */
+} launcher_state_t;
+
+static launcher_state_t current_state = STATE_INIT; /* 当前状态 */
+static lv_obj_t *content_area = NULL;           /* 内容区域 */
+static lv_obj_t *current_obj = NULL;            /* 当前显示的对象 */
+
+/****************************************************************************
+ * Private Functions
+ ****************************************************************************/
+
+static void state_timer_cb(lv_timer_t *timer);
+
+/**
+ * @brief 切换到下一个状态
+ */
+static void goto_next_state(void)
+{
+  switch (current_state)
+    {
+      case STATE_INIT:
+        /* 切换到显示logo状态 */
+        current_state = STATE_SHOW_LOGO;
+        if (current_obj != NULL)
+          {
+            lv_obj_del(current_obj);
+          }
+        current_obj = boot_logo_init(content_area);
+        lv_task_handler();
+
+        lv_timer_t *timer1 = lv_timer_create(state_timer_cb, LOGO_DISPLAY_TIME, NULL);
+        lv_timer_set_repeat_count(timer1, 1);
+        break;
+
+      case STATE_SHOW_LOGO:
+        /* 切换到显示动画状态 */
+        current_state = STATE_SHOW_ANIM;
+
+        /* 销毁logo并显示动画 */
+        boot_logo_deinit(current_obj);
+        printf("[LAUNCHER] boot_animation init, start load power anim\n");
+        current_obj = boot_animation_init(content_area);
+        lv_task_handler();
+
+        /* 设置动画显示时间 */
+        lv_timer_t *timer2 = lv_timer_create(state_timer_cb, ANIMATION_DISPLAY_TIME, NULL);
+        lv_timer_set_repeat_count(timer2, 1);
+        break;
+
+      case STATE_SHOW_ANIM:
+        /* 动画播放完成，进入表情页面状态 */
+        current_state = STATE_SHOW_EXPRESSION;
+        printf("[LAUNCHER] Boot animation finished, starting expression page\n");
+
+        /* 销毁动画 */
+        boot_animation_deinit(current_obj);
+        current_obj = NULL;
+
+        /* 启动表情展示页面 */
+        current_obj = watch_expression_page_init(content_area);
+        if (current_obj == NULL)
+          {
+            printf("[LAUNCHER] Failed to init expression page!\n");
+            current_state = STATE_DONE;
+          }
+        lv_task_handler();
+        break;
+
+      case STATE_SHOW_EXPRESSION:
+        /* 表情页面持续运行，进入完成状态（不会自动销毁） */
+        current_state = STATE_DONE;
+        printf("[LAUNCHER] Expression page running\n");
+        break;
+
+      default:
+        break;
+    }
+}
+
+/**
+ * @brief 状态定时器回调函数
+ */
+static void state_timer_cb(lv_timer_t *timer)
+{
+  goto_next_state();
+}
+
+/****************************************************************************
+ * Public Functions
+ ****************************************************************************/
+
+/**
+ * @brief 初始化并运行开机logo → 开机动画流程
+ *
+ * @param parent 父容器对象
+ * @return int 成功返回0，失败返回负值
+ */
+int launcher_init(lv_obj_t *parent)
+{
+  /* 创建内容区域 */
+  content_area = lv_obj_create(parent);
+  lv_obj_set_size(content_area, LV_PCT(100), LV_PCT(100));
+  lv_obj_set_style_border_width(content_area, 0, 0);
+  lv_obj_set_style_bg_color(content_area, lv_color_hex(0x000000), 0);
+  lv_obj_set_style_pad_all(content_area, 0, 0);
+  lv_obj_clear_flag(content_area, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_radius(content_area, 0, 0);
+  lv_obj_center(content_area);
+
+  /* 启动开机流程 */
+  current_state = STATE_INIT;
+  goto_next_state();
+
+  return 0;
+}

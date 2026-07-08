@@ -1,7 +1,5 @@
 /****************************************************************************
- * boards/xtensa/esp32s3/esp32s3-touch-amoled/src/etc/init.d/rcS
- *
- * SPDX-License-Identifier: Apache-2.0
+ * vendor/watch/apps/boot/boot_logo.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -20,12 +18,43 @@
  *
  ****************************************************************************/
 
+#ifndef __VENDOR_WATCH_APPS_LAUNCHER_BOOT_LOGO_H
+#define __VENDOR_WATCH_APPS_LAUNCHER_BOOT_LOGO_H
+
+/****************************************************************************
+ * Included Files
+ ****************************************************************************/
+
 #include <nuttx/config.h>
+#include <stdint.h>
+#include <lvgl/lvgl.h>
 
-#ifdef CONFIG_EXAMPLES_ESP32S3_WATCH_BUTTON
-esp32s3button &
+#ifdef __cplusplus
+extern "C"
+{
 #endif
 
-#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_BOOT
-watch &
+/****************************************************************************
+ * Public Function Prototypes
+ ****************************************************************************/
+
+/**
+ * @brief 初始化并显示开机logo
+ * 
+ * @param parent 父容器对象
+ * @return lv_obj_t* 返回创建的logo对象
+ */
+lv_obj_t *boot_logo_init(lv_obj_t *parent);
+
+/**
+ * @brief 销毁开机logo
+ * 
+ * @param logo_obj logo对象
+ */
+void boot_logo_deinit(lv_obj_t *logo_obj);
+
+#ifdef __cplusplus
+}
 #endif
+
+#endif /* __VENDOR_WATCH_APPS_LAUNCHER_BOOT_LOGO_H */

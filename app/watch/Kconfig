@@ -1,0 +1,12 @@
+config EXAMPLES_CONTEST2026_WATCH_BOOT
+        bool "Contest 2026 - Boot Logo & Animation"
+        depends on GRAPHICS_LVGL
+        default n
+        ---help---
+                Enable boot logo display and boot animation playback
+                for the ESP32-S3 Touch AMOLED platform.
+                
+                Features:
+                - iSoftStone logo display at power-on (1 second)
+                - Power-on animation (42 frames at 10fps, ~4.2 seconds)
+                - Uses embedded C array image resources (no filesystem)
