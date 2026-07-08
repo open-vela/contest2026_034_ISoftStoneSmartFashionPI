@@ -1,0 +1,7 @@
+############################################################################
+# Contest 2026 watch boot logo & animation - Make.defs
+############################################################################
+
+ifneq ($(CONFIG_EXAMPLES_CONTEST2026_WATCH_BOOT),)
+CONFIGURED_APPS += $(APPDIR)/packages/demos/contest2026_034_watch
+endif

@@ -1,7 +1,5 @@
 /****************************************************************************
- * boards/xtensa/esp32s3/esp32s3-touch-amoled/src/etc/init.d/rcS
- *
- * SPDX-License-Identifier: Apache-2.0
+ * apps/watch/apps/launcher/launcher.h
  *
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -20,12 +18,36 @@
  *
  ****************************************************************************/
 
+#ifndef __CONTEST_WATCH_APPS_LAUNCHER_LAUNCHER_H
+#define __CONTEST_WATCH_APPS_LAUNCHER_LAUNCHER_H
+
+/****************************************************************************
+ * Included Files
+ ****************************************************************************/
+
 #include <nuttx/config.h>
+#include <stdint.h>
+#include <lvgl/lvgl.h>
 
-#ifdef CONFIG_EXAMPLES_ESP32S3_WATCH_BUTTON
-esp32s3button &
+#ifdef __cplusplus
+extern "C"
+{
 #endif
 
-#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_BOOT
-watch &
+/****************************************************************************
+ * Public Function Prototypes
+ ****************************************************************************/
+
+/**
+ * @brief 初始化并运行主页流程（开机logo → 开机动画）
+ *
+ * @param parent 父容器对象
+ * @return int 成功返回0，失败返回负值
+ */
+int launcher_init(lv_obj_t *parent);
+
+#ifdef __cplusplus
+}
 #endif
+
+#endif /* __CONTEST_WATCH_APPS_LAUNCHER_LAUNCHER_H */
