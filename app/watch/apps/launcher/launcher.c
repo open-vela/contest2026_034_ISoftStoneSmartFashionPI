@@ -89,7 +89,6 @@ static void goto_next_state(void)
 
         /* 销毁logo并显示动画 */
         boot_logo_deinit(current_obj);
-        printf("[LAUNCHER] boot_animation init, start load power anim\n");
         current_obj = boot_animation_init(content_area);
         lv_task_handler();
 
@@ -101,7 +100,6 @@ static void goto_next_state(void)
       case STATE_SHOW_ANIM:
         /* 动画播放完成，进入表情页面状态 */
         current_state = STATE_SHOW_EXPRESSION;
-        printf("[LAUNCHER] Boot animation finished, starting expression page\n");
 
         /* 销毁动画 */
         boot_animation_deinit(current_obj);
@@ -111,7 +109,7 @@ static void goto_next_state(void)
         current_obj = watch_expression_page_init(content_area);
         if (current_obj == NULL)
           {
-            printf("[LAUNCHER] Failed to init expression page!\n");
+            printf("[LAUNCHER] ERROR: Failed to init expression page\n");
             current_state = STATE_DONE;
           }
         lv_task_handler();
@@ -120,7 +118,6 @@ static void goto_next_state(void)
       case STATE_SHOW_EXPRESSION:
         /* 表情页面持续运行，进入完成状态（不会自动销毁） */
         current_state = STATE_DONE;
-        printf("[LAUNCHER] Expression page running\n");
         break;
 
       default:

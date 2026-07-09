@@ -38,7 +38,7 @@
 #define WATCH_EXPR_DIR       "GIF"
 
 /* 调试开关 */
-#define RESOURCE_DEBUG 1
+#define RESOURCE_DEBUG 0
 
 #if RESOURCE_DEBUG
 #define RES_LOG(fmt, ...) printf("[RESOURCE] " fmt "\n", ##__VA_ARGS__)
@@ -94,18 +94,10 @@ static const int g_img_expression_count = sizeof(g_expression_files) / sizeof(g_
 
 void watch_resource_init(void)
 {
-    RES_LOG("resource_init started");
-    RES_LOG("resource_init completed: %d images + %d power frames + %d expressions (SD card)",
-            g_img_count, g_img_power_count, g_img_expression_count);
-
     /* 检查SD卡是否已挂载 */
-    if (access(WATCH_SD_MOUNT_PATH, F_OK) == 0)
+    if (access(WATCH_SD_MOUNT_PATH, F_OK) != 0)
       {
-        RES_LOG("SD card mount point '%s' is accessible", WATCH_SD_MOUNT_PATH);
-      }
-    else
-      {
-        RES_LOG("WARNING: SD card mount point '%s' not accessible yet!", WATCH_SD_MOUNT_PATH);
+        RES_LOG("WARNING: SD card mount point '%s' not accessible", WATCH_SD_MOUNT_PATH);
       }
 }
 
