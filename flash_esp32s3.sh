@@ -18,29 +18,42 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# 智能检测项目根目录:
-#   如果脚本在 <root>/ 下 (通过软链接调用), 则 SCRIPT_DIR 即为项目根目录
-#   如果脚本在 <root>/nuttx/tools/ 下, 则项目根目录为脚本目录的上两级
-#   如果脚本在 <root>/contest2026_034_ISoftStoneSmartFashionPI/ 下, 则项目根目录为脚本目录的上一级
-if [ -d "${SCRIPT_DIR}/nuttx" ] && [ -d "${SCRIPT_DIR}/vendor" ]; then
-    PROJECT_ROOT="${SCRIPT_DIR}"
-elif [ -d "${SCRIPT_DIR}/../../vendor" ]; then
-    PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-elif [ -d "${SCRIPT_DIR}/../nuttx" ] && [ -d "${SCRIPT_DIR}/../vendor" ]; then
-    PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-else
-    echo "[ERROR] 无法自动检测项目根目录, SCRIPT_DIR=${SCRIPT_DIR}"
-    exit 1
-fi
+# 脚本固定在 <root>/contest2026_034_ISoftStoneSmartFashionPI/ 下运行
+TEAM_DIR="${SCRIPT_DIR}"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 NUTTX_DIR="${PROJECT_ROOT}/nuttx"
 
-# 大赛仓库目录（脚本实体所在位置）
-TEAM_DIR="${PROJECT_ROOT}/contest2026_034_ISoftStoneSmartFashionPI"
+if [ ! -d "${NUTTX_DIR}" ]; then
+    echo "[ERROR] 找不到 NuttX 目录: ${NUTTX_DIR}"
+    echo "       脚本必须放在 <project-root>/contest2026_034_ISoftStoneSmartFashionPI/ 下运行"
+    exit 1
+fi
+
+# 交叉工具链 PATH（关键！否则 CPP 处理 rcS 会静默失败为空文件）
+# openvela 官方 prebuilt xtensa-esp32s3-elf 工具链
+TOOLCHAIN_DIR="${PROJECT_ROOT}/prebuilts/gcc/linux-x86_64/xtensa-esp32s3-elf/bin"
+if [ -d "${TOOLCHAIN_DIR}" ]; then
+    case ":${PATH}:" in
+        *":${TOOLCHAIN_DIR}:"*) : ;;   # 已在 PATH 中
+        *) export PATH="${TOOLCHAIN_DIR}:${PATH}" ;;
+    esac
+else
+    echo "[WARN] 未找到交叉工具链: ${TOOLCHAIN_DIR}"
+    echo "       如果编译失败请检查 prebuilts 是否已同步"
+fi
+
+# 确认关键工具可用
+if ! command -v xtensa-esp32s3-elf-gcc >/dev/null 2>&1; then
+    echo "[ERROR] xtensa-esp32s3-elf-gcc 不在 PATH 中"
+    echo "       期望位置: ${TOOLCHAIN_DIR}"
+    exit 1
+fi
 
 # 默认参数
 PORT="/dev/ttyACM0"
 BAUD="921600"
-ACTION="build_flash"   # build_flash | pack | flash_littlefs | flash_all | build_only | clean_build
+ACTION="build_flash"   # build_flash | pack | flash_littlefs | flash_all | build_only | flash_only | convert_assets
+DO_CLEAN=0             # -c 开关，与 ACTION 正交
 FORCE_PACK=0
 SKIP_PROMPT=0
 
@@ -158,44 +171,102 @@ check_littlefs_python() {
     fi
 }
 
+# 拷贝 bootloader / partition-table 到 nuttx/，供 make flash 使用
+ensure_bootloader_bins() {
+    local src="${TEAM_DIR}/bootloader"
+    if [ ! -f "${src}/bootloader-esp32s3.bin" ] || [ ! -f "${src}/partition-table-esp32s3.bin" ]; then
+        log_warn "未找到 bootloader/partition-table 源文件: ${src}"
+        return 0
+    fi
+    cp "${src}/bootloader-esp32s3.bin"      "${NUTTX_DIR}/"
+    cp "${src}/partition-table-esp32s3.bin" "${NUTTX_DIR}/"
+    log_info "已同步 bootloader / partition-table 到 nuttx/"
+}
+
+# 把本仓库 app/*, board/* 映射到 openvela 工作树（代替 manifest linkfile）
+# 幂等：已存在且指向正确则跳过。
+ensure_app_symlinks() {
+    # <目标链接>:<指向的源>（源为相对于目标链接所在目录的相对路径）
+    local links=(
+        "${PROJECT_ROOT}/packages/demos/contest2026_034_watch:../../contest2026_034_ISoftStoneSmartFashionPI/app/watch"
+        "${PROJECT_ROOT}/packages/demos/contest2026_034_hello_app:../../contest2026_034_ISoftStoneSmartFashionPI/app/hello_app"
+    )
+    local entry link target parent
+    for entry in "${links[@]}"; do
+        link="${entry%%:*}"
+        target="${entry##*:}"
+        parent="$(dirname "${link}")"
+
+        # 目录不存在时跳过（例如 packages/demos 尚未同步）
+        if [ ! -d "${parent}" ]; then
+            log_warn "目录不存在，无法创建链接: ${parent}"
+            continue
+        fi
+
+        # 已存在且指向正确，跳过
+        if [ -L "${link}" ] && [ "$(readlink "${link}")" = "${target}" ]; then
+            continue
+        fi
+
+        # 实体目录/其他链接，不覆盖，仅提醒
+        if [ -e "${link}" ] && [ ! -L "${link}" ]; then
+            log_warn "已存在同名实体，跳过链接创建: ${link}"
+            continue
+        fi
+
+        ln -sfn "${target}" "${link}"
+        log_info "已创建应用链接: $(basename "${link}") -> ${target}"
+    done
+}
+
 ############################################################################
 # Actions
 ############################################################################
 
+action_first_time_config() {
+    # 首次配置直接指向大赛仓库内的 defconfig 目录（out-of-tree 绝对路径）
+    # 不依赖 manifest linkfile；也不用 build.sh，避免其 savedefconfig 阶段回写覆盖
+    # 大赛仓库维护的 defconfig。
+    local team_config_dir="${TEAM_DIR}/board/esp32s3-touch-amoled/configs/openvela"
+    if [ ! -f "${team_config_dir}/defconfig" ]; then
+        log_error "找不到大赛 defconfig: ${team_config_dir}/defconfig"
+        exit 1
+    fi
+    if [ ! -x "${NUTTX_DIR}/tools/configure.sh" ]; then
+        log_error "找不到 nuttx/tools/configure.sh"
+        exit 1
+    fi
+
+    log_info "首次配置: ${team_config_dir}"
+    "${NUTTX_DIR}/tools/configure.sh" -e "${team_config_dir}"
+}
+
 action_build_nuttx() {
     log_info "编译 NuttX..."
-    cd "${NUTTX_DIR}"
 
-    # 确保 bootloader/partition table 已复制
-    if [ -f "${TEAM_DIR}/bootloader/bootloader-esp32s3.bin" ]; then
-        cp "${TEAM_DIR}/bootloader/bootloader-esp32s3.bin" .
-        cp "${TEAM_DIR}/bootloader/partition-table-esp32s3.bin" .
-        log_info "已复制 10MB bootloader/partition-table"
-    fi
+    # 先确保应用链接存在（否则 packages/demos/Kconfig 里拿不到 watch 的 Kconfig，
+    # 导致 CONFIG_EXAMPLES_CONTEST2026_WATCH_BOOT 只在 defconfig 里写了但进不了 .config）
+    ensure_app_symlinks
 
-    # 如果配置不存在（首次或被 distclean 清理），先执行配置脚本
+    # 首次配置（.config 不存在时）
     if [ ! -f "${NUTTX_DIR}/.config" ]; then
         log_warn "NuttX 配置不存在，执行首次配置..."
-        cd "${PROJECT_ROOT}"
-        local build_sh="${PROJECT_ROOT}/build.sh"
-        if [ -x "${build_sh}" ]; then
-            "${build_sh}" vendor/espressif/boards/esp32s3/esp32s3-touch-amoled/configs/openvela -j$(nproc)
-            # 注：board/esp32s3-touch-amoled 通过 contest manifest linkfile 映射到 vendor/espressif/boards/esp32s3/esp32s3-touch-amoled
-            log_ok "首次配置并编译完成"
-            return 0
-        else
-            log_error "找不到 build.sh: ${build_sh}"
-            exit 1
-        fi
+        action_first_time_config
     fi
 
+    cd "${NUTTX_DIR}"
 
-    if [ "$ACTION" == "clean_build" ]; then
+    # 配置就绪后再拷贝 bootloader / partition-table，避免被 distclean 误清
+    ensure_bootloader_bins
+
+    if [ "$DO_CLEAN" -eq 1 ]; then
         log_info "执行 make clean..."
         make clean
         # 删除应用层 .depend 文件，避免新增源文件后 Makefile 变更未被重新扫描
         find "${PROJECT_ROOT}/apps" -name ".depend" -delete 2>/dev/null || true
         log_info "已清理 apps/.depend 缓存"
+        # clean 会删掉 bootloader bin，需要再补一次
+        ensure_bootloader_bins
     fi
 
     log_info "同步配置 (make oldconfig)..."
@@ -208,6 +279,8 @@ action_build_nuttx() {
 action_flash_nuttx() {
     log_info "刷写 NuttX 固件..."
     cd "${NUTTX_DIR}"
+    # -s 场景下没走 build，也要保证 bootloader / partition-table 就位
+    ensure_bootloader_bins
     sudo chmod 777 "${PORT}" 2>/dev/null || true
     make flash ESPTOOL_PORT="${PORT}" ESPTOOL_BINDIR=./ -j$(nproc)
     log_ok "NuttX 固件刷写完成"
@@ -225,7 +298,7 @@ action_convert_assets() {
     local convert_font_script="${PROJECT_ROOT}/nuttx/tools/convert_fonts_to_c.py"
 
     # PNG -> C arrays
-    log_info "[1/2] 转换 PNG 图片为 LVGL C 数组..."
+    log_info "[1/3] 转换 PNG 图片为 LVGL C 数组..."
     if [ -f "${convert_script}" ]; then
         mkdir -p "${assets_gen_dir}"
         python3 "${convert_script}" \
@@ -281,7 +354,7 @@ action_pack_littlefs() {
     mkdir -p "${TMP_DIR}/power_png"
 
     # 复制字体（从 assets，不复制已嵌入的 C 数组字体，除非用户需要）
-    log_info "[1/3] 复制字体文件..."
+    log_info "[1/2] 复制字体文件..."
     if [ -d "${RES_DIR}/font/assets" ]; then
         cp "${RES_DIR}/font/assets/"*.ttf "${TMP_DIR}/FONT/" 2>/dev/null || true
         log_ok "已复制 $(ls "${TMP_DIR}/FONT/" 2>/dev/null | wc -l) 个字体文件"
@@ -301,7 +374,7 @@ action_pack_littlefs() {
     # fi
 
     # 生成镜像
-    log_info "[3/3] 生成 LittleFS 镜像..."
+    log_info "[2/2] 生成 LittleFS 镜像..."
     python3 "${PACK_PY}" \
         -c "${TMP_DIR}" \
         -o "${IMG_FILE}" \
@@ -381,7 +454,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         -c|--clean-build)
-            ACTION="clean_build"
+            DO_CLEAN=1
             shift
             ;;
         -F|--force)
@@ -419,10 +492,6 @@ case "$ACTION" in
         action_flash_nuttx
         ;;
     build_flash)
-        action_build_nuttx
-        action_flash_nuttx
-        ;;
-    clean_build)
         action_build_nuttx
         action_flash_nuttx
         ;;
