@@ -367,7 +367,16 @@ int esp32s3_bringup(void)
       syslog(LOG_ERR, "ERROR: Failed to create /mnt/sd: %d\n", ret);
     }
 
- /* SD initialize */
+  /* SD initialize.
+   * The TF card slot is wired for SPI (MOSI=GPIO1, SCK=GPIO2, MISO=GPIO3,
+   * SDCS=GPIO17) but we use native SDMMC 1-bit mode.  The card samples its
+   * CS/DAT3 line at power-on to decide between SPI and SD mode; drive GPIO17
+   * high so the card enters SD mode and stays there after a soft reboot.
+   */
+  esp32s3_configgpio(17, OUTPUT);
+  esp32s3_gpiowrite(17, true);
+  usleep(10000);
+
   syslog(LOG_INFO, "Initializing SDMMC...\n");
   ret = board_sdmmc_initialize();                    // done
   if (ret < 0)
@@ -379,28 +388,35 @@ int esp32s3_bringup(void)
       syslog(LOG_INFO, "SDMMC initialized successfully\n");
     }
 
-  /* Wait for SD card to be ready and try to mount with retries */
+  /* Wait for SD card to be ready and try to mount with retries.
+   * Some cards take longer to become ready after power-on, so we first
+   * wait for the block device to appear and then retry the mount.
+   */
   syslog(LOG_INFO, "Waiting for SD card...\n");
-  usleep(1000000);  /* Wait 1s for SD card to be ready */
-  
+
   int mount_retries;
-  for (mount_retries = 0; mount_retries < 3; mount_retries++)
+  struct stat buf;
+  for (mount_retries = 0; mount_retries < 20; mount_retries++)
     {
-      syslog(LOG_INFO, "Mount attempt %d...\n", mount_retries + 1);
-      ret = nx_mount("/dev/mmcsd1", "/mnt/sd", "vfat", 0, NULL);
-      if (ret == OK)
+      if (stat("/dev/mmcsd1", &buf) == 0)
         {
-          syslog(LOG_INFO, "SD card mounted at /mnt/sd\n");
-          break;
+          ret = nx_mount("/dev/mmcsd1", "/mnt/sd", "vfat", 0, NULL);
+          if (ret == OK)
+            {
+              syslog(LOG_INFO, "SD card mounted at /mnt/sd\n");
+              break;
+            }
+
+          syslog(LOG_ERR, "ERROR: Failed to mount SD card (attempt %d): %d\n",
+                 mount_retries + 1, ret);
         }
-      
-      syslog(LOG_ERR, "ERROR: Failed to mount SD card (attempt %d): %d\n", 
-             mount_retries + 1, ret);
-      
-      if (mount_retries < 2)
+      else
         {
-          usleep(200000);  /* Wait 200ms before retry */
+          syslog(LOG_INFO, "SD card block device not ready (attempt %d)\n",
+                 mount_retries + 1);
         }
+
+      usleep(200000);  /* Wait 200ms before retry */
     }
 #endif /* CONFIG_ESP32S3_SDMMC */
 
