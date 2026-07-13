@@ -103,18 +103,18 @@ static void switch_to_expression(int index)
 
   s_curr_index = index;
 
-  const char *gif_path = watch_resource_get_img_expression(index);
-  if (gif_path == NULL)
+  const void *gif_src = watch_resource_get_img_expression(index);
+  if (gif_src == NULL)
     {
-      PAGE_LOG("ERROR: Failed to get expression path at index %d", index);
+      PAGE_LOG("ERROR: Failed to get expression data at index %d", index);
       return;
     }
 
   /* 淡出当前图片 */
   lv_obj_set_style_opa(s_expr_gif, LV_OPA_TRANSP, 0);
 
-  /* 设置GIF文件源 */
-  lv_gif_set_src(s_expr_gif, gif_path);
+  /* 设置GIF嵌入式数据源 */
+  lv_gif_set_src(s_expr_gif, gif_src);
 
   /* 重启GIF动画 */
   lv_gif_restart(s_expr_gif);
@@ -148,13 +148,6 @@ lv_obj_t *watch_expression_page_init(lv_obj_t *parent)
   if (s_page_root != NULL)
     {
       return s_page_root;
-    }
-
-  /* 等待SD卡就绪 */
-  if (!wait_for_sd_ready())
-    {
-      PAGE_LOG("ERROR: SD card not ready, expression page init failed");
-      return NULL;
     }
 
   /* 获取表情图片总数 */
@@ -191,7 +184,7 @@ lv_obj_t *watch_expression_page_init(lv_obj_t *parent)
   for (i = 0; i < s_expr_count; i++)
     {
       s_curr_index = i;
-      const char *first_gif = watch_resource_get_img_expression(s_curr_index);
+      const void *first_gif = watch_resource_get_img_expression(s_curr_index);
       if (first_gif == NULL)
         continue;
 

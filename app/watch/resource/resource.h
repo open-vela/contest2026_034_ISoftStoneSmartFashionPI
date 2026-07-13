@@ -39,13 +39,13 @@ const void* watch_resource_get_img(const char* key);
 const void* watch_resource_get_img_power(const char* key);
 
 /**
- * Get an expression GIF file path (LVGL format) by index.
- * The returned path is suitable for lv_gif_set_src() or lv_img_set_src().
+ * Get an expression GIF image descriptor by index.
+ * The returned pointer is suitable for lv_gif_set_src() directly (embedded GIF data).
  * @param index The index of the expression image (0-based).
- * @return A LVGL file path string (e.g. "S:/image/Expression/gif/face_smile.gif"),
+ * @return A pointer to lv_image_dsc_t containing raw GIF data,
  *         or NULL if index is out of range.
  */
-const char* watch_resource_get_img_expression(int index);
+const void* watch_resource_get_img_expression(int index);
 
 /**
  * Get the total number of registered expression images.

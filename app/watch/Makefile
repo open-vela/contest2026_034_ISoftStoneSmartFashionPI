@@ -26,8 +26,9 @@ CSRCS += resource/resource.c
 # Image data (boot logo)
 CSRCS += resource/image/app/boot/isoftstone_logo.c
 
-# Expression GIF images are loaded from SD card at runtime,
-# no C array data is compiled into firmware.
+# Expression GIF images embedded as C arrays (from gif2)
+EXPR_GIF2_GEN_DIR := ./resource/image/Expression/gif2/generated
+CSRCS += $(wildcard $(EXPR_GIF2_GEN_DIR)/*.c)
 
 # Animation frame data (PNG assets)
 POWER_PNG_GEN_DIR := ./resource/power_png/generated

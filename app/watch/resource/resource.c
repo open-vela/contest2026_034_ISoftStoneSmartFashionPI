@@ -20,22 +20,13 @@
 
 #include "image/generated/lvgl_assets.h"
 #include "power_png/generated/power_png_assets.h"
+#include "image/Expression/gif2/generated/expression_gif2_assets.h"
 
 /*********************
  *      DEFINES
  *********************/
 
 #define ARRAY_SIZE(ARRAY) (sizeof(ARRAY) / sizeof(ARRAY[0]))
-
-/* LVGL POSIX FS drive letter for SD card (ASCII 83 = 'S') */
-#define WATCH_SD_LVGL_DRIVE  'S'
-
-/* SD card mount point on Vela/NuttX */
-#define WATCH_SD_MOUNT_PATH  "/mnt/sd"
-
-/* Expression GIF directory relative to SD card root
- * Uses uppercase 8.3 name to match FAT filesystem storage */
-#define WATCH_EXPR_DIR       "GIF"
 
 /* 调试开关 */
 #define RESOURCE_DEBUG 0
@@ -74,19 +65,32 @@ static const resource_img_t g_img_power_resource_map[] = {
 };
 #undef IMG_DEF
 
-/* 表情GIF文件名列表（从SD卡加载） */
-#define EXPR_DEF(NAME) NAME,
-static const char* g_expression_files[] = {
-#include "image/Expression/gif/expression_img_src.inc"
+/* 表情GIF嵌入式数据（编译到固件，无需SD卡） */
+static const lv_image_dsc_t * const g_expression_gifs[] = {
+    &gif_face_smile,
+    &gif_face_calm,
+    &gif_face_caring,
+    &gif_face_comfort,
+    &gif_face_confused,
+    &gif_face_energy_pulse,
+    &gif_face_error_1,
+    &gif_face_fall,
+    &gif_face_heart_breathing,
+    &gif_face_listening,
+    &gif_face_muted,
+    &gif_face_shy,
+    &gif_face_sleep,
+    &gif_face_sleep_breathing,
+    &gif_face_speaking,
+    &gif_face_standby_1,
+    &gif_face_success_1,
+    &gif_face_thinking_1,
+    &gif_face_waiting,
 };
-#undef EXPR_DEF
-
-/* 表情GIF完整LVGL路径缓冲区（运行时填充） */
-static char g_expression_path[128];
 
 static const int g_img_count = sizeof(g_img_resource_map) / sizeof(g_img_resource_map[0]);
 static const int g_img_power_count = sizeof(g_img_power_resource_map) / sizeof(g_img_power_resource_map[0]);
-static const int g_img_expression_count = sizeof(g_expression_files) / sizeof(g_expression_files[0]);
+static const int g_img_expression_count = sizeof(g_expression_gifs) / sizeof(g_expression_gifs[0]);
 
 /**********************
  *   GLOBAL FUNCTIONS
@@ -94,11 +98,8 @@ static const int g_img_expression_count = sizeof(g_expression_files) / sizeof(g_
 
 void watch_resource_init(void)
 {
-    /* 检查SD卡是否已挂载 */
-    if (access(WATCH_SD_MOUNT_PATH, F_OK) != 0)
-      {
-        RES_LOG("WARNING: SD card mount point '%s' not accessible", WATCH_SD_MOUNT_PATH);
-      }
+    /* 表情GIF已嵌入固件，无需SD卡 */
+    RES_LOG("Expression GIFs embedded: %d images", g_img_expression_count);
 }
 
 const void* watch_resource_get_img(const char* key)
@@ -123,21 +124,14 @@ const void* watch_resource_get_img_power(const char* key)
     return LV_SYMBOL_IMAGE;
 }
 
-const char* watch_resource_get_img_expression(int index)
+const void* watch_resource_get_img_expression(int index)
 {
     if (index < 0 || index >= g_img_expression_count) {
         RES_LOG("Expression index %d out of range (0-%d)", index, g_img_expression_count - 1);
         return NULL;
     }
 
-    /* 构建LVGL文件路径: "S:/image/Expression/gif/face_smile.gif" */
-    snprintf(g_expression_path, sizeof(g_expression_path),
-             "%c:/%s/%s",
-             WATCH_SD_LVGL_DRIVE,
-             WATCH_EXPR_DIR,
-             g_expression_files[index]);
-
-    return g_expression_path;
+    return g_expression_gifs[index];
 }
 
 int watch_resource_get_expression_count(void)
@@ -147,11 +141,6 @@ int watch_resource_get_expression_count(void)
 
 int watch_resource_is_sd_ready(void)
 {
-    struct stat st;
-    if (stat(WATCH_SD_MOUNT_PATH, &st) == 0)
-      {
-        return 1;
-      }
-    RES_LOG("SD card not ready: %s (%d)", strerror(errno), errno);
-    return 0;
+    /* 表情GIF已嵌入固件，始终返回就绪 */
+    return 1;
 }
