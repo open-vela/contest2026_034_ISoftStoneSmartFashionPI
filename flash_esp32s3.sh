@@ -9,7 +9,8 @@
 #   ./flash_esp32s3.sh -f           打包并刷写 LittleFS 镜像
 #   ./flash_esp32s3.sh -n           只编译 NuttX，不刷机
 #   ./flash_esp32s3.sh -s           跳过编译，直接刷写已有固件
-#   ./flash_esp32s3.sh -c           make clean 后编译
+#   ./flash_esp32s3.sh -c           执行 distclean（不编译）
+#   ./flash_esp32s3.sh -m           执行 menuconfig
 #   ./flash_esp32s3.sh -P /dev/ttyUSB0 -b 460800   指定串口和波特率
 #
 
@@ -52,10 +53,12 @@ fi
 # 默认参数
 PORT="/dev/ttyACM0"
 BAUD="921600"
-ACTION="build_flash"   # build_flash | pack | flash_littlefs | flash_all | build_only | flash_only | convert_assets
-DO_CLEAN=0             # -c 开关，与 ACTION 正交
+ACTION="build_flash"   # build_flash | pack | flash_littlefs | flash_all | build_only | flash_only | convert_assets | distclean | menuconfig
 FORCE_PACK=0
 SKIP_PROMPT=0
+
+# 当前配置地址（传递给 build.sh）
+BOARD_CONFIG="contest2026_034_ISoftStoneSmartFashionPI/board/esp32s3-touch-amoled/configs/openvela"
 
 # LittleFS 参数
 BLOCK_SIZE=4096
@@ -85,7 +88,8 @@ Options:
   -C, --convert-assets  转换 PNG/TTF 素材为 C 数组（手动触发）
   -s, --skip-build      跳过编译，直接刷写已有 nuttx.bin 固件
   -n, --build-only      只编译 NuttX，不刷机
-  -c, --clean-build     make clean 后重新编译
+  -c, --distclean       执行 ./build.sh <当前配置地址> distclean（不编译）
+  -m, --menuconfig      执行 ./build.sh <当前配置地址> menuconfig
   -F, --force           强制重新生成 LittleFS 镜像
   -P, --port <port>     串口设备 (默认: ${PORT})
   -b, --baud <baud>     烧录波特率 (默认: ${BAUD})
@@ -100,7 +104,8 @@ Examples:
   $(basename "$0") -C                 # 手动转换素材为 C 数组
   $(basename "$0") -aC                # 转换素材 + 全量编译烧录
   $(basename "$0") -f -P /dev/ttyUSB0 # 打包并烧录素材到指定串口
-  $(basename "$0") -c -a              # 清理后全量编译烧录
+  $(basename "$0") -c                 # 仅执行 distclean
+  $(basename "$0") -m                 # 仅执行 menuconfig
 
 EOF
     exit 0
@@ -241,6 +246,20 @@ action_first_time_config() {
     "${NUTTX_DIR}/tools/configure.sh" -e "${team_config_dir}"
 }
 
+action_distclean() {
+    log_info "执行 distclean: ${BOARD_CONFIG}"
+    cd "${PROJECT_ROOT}"
+    ./build.sh "${BOARD_CONFIG}" distclean
+    log_ok "distclean 完成"
+}
+
+action_menuconfig() {
+    log_info "执行 menuconfig: ${BOARD_CONFIG}"
+    cd "${PROJECT_ROOT}"
+    ./build.sh "${BOARD_CONFIG}" menuconfig
+    log_ok "menuconfig 完成"
+}
+
 action_build_nuttx() {
     log_info "编译 NuttX..."
 
@@ -258,16 +277,6 @@ action_build_nuttx() {
 
     # 配置就绪后再拷贝 bootloader / partition-table，避免被 distclean 误清
     ensure_bootloader_bins
-
-    if [ "$DO_CLEAN" -eq 1 ]; then
-        log_info "执行 make clean..."
-        make clean
-        # 删除应用层 .depend 文件，避免新增源文件后 Makefile 变更未被重新扫描
-        find "${PROJECT_ROOT}/apps" -name ".depend" -delete 2>/dev/null || true
-        log_info "已清理 apps/.depend 缓存"
-        # clean 会删掉 bootloader bin，需要再补一次
-        ensure_bootloader_bins
-    fi
 
     log_info "同步配置 (make oldconfig)..."
     yes "" | make oldconfig 2>/dev/null || make oldconfig
@@ -453,8 +462,12 @@ while [[ $# -gt 0 ]]; do
             ACTION="build_only"
             shift
             ;;
-        -c|--clean-build)
-            DO_CLEAN=1
+        -c|--distclean)
+            ACTION="distclean"
+            shift
+            ;;
+        -m|--menuconfig)
+            ACTION="menuconfig"
             shift
             ;;
         -F|--force)
@@ -507,6 +520,12 @@ case "$ACTION" in
         ;;
     convert_assets)
         action_convert_assets
+        ;;
+    distclean)
+        action_distclean
+        ;;
+    menuconfig)
+        action_menuconfig
         ;;
     flash_all)
         action_flash_all
