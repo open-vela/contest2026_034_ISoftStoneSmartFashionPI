@@ -10,12 +10,15 @@ if(CONFIG_EXAMPLES_CONTEST2026_WATCH_BOOT)
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/boot/*.c
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/launcher/*.c
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/common/*.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/apps/settings/*.c
   )
 
   # Resource files (image data)
   file(GLOB RESOURCE_CSRCS
     ${CMAKE_CURRENT_SOURCE_DIR}/resource/*.c
     ${CMAKE_CURRENT_SOURCE_DIR}/resource/image/app/boot/*.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/resource/image/generated/*.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/resource/font/generated/*.c
   )
 
   # Expression GIF images are loaded from SD card at runtime,

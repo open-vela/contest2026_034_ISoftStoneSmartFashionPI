@@ -15,14 +15,29 @@ extern "C" {
 
 #include <lvgl/lvgl.h>
 
+/*********************
+ *      DEFINES
+ *********************/
+
+/* 字体定义 - 统一管理 */
+#define WATCH_REGULAR_FONT "MiSans-Regular"
+
 /**********************
  * GLOBAL PROTOTYPES
  **********************/
 
 /**
  * Initialize the resource manager.
+ * Must be called after lv_init() and before using any resource API.
  */
 void watch_resource_init(void);
+
+/**
+ * Get a font resource by key.
+ * @param key The key in format "FontName_Size", e.g. "MiSans-Regular_20".
+ * @return A pointer to the font, or LV_FONT_DEFAULT if not found.
+ */
+const lv_font_t* watch_resource_get_font(const char* key);
 
 /**
  * Get an image resource by key.
