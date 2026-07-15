@@ -122,4 +122,17 @@ int lv_watch_push_page(lv_obj_t *page);
  */
 int lv_watch_pop_page(lv_obj_t *page);
 
+/**
+ * @brief 设置指定表情（供 ai_agent set_face tool 调用）
+ *
+ *  立即停止自动轮播，切换到 face_id 对应的 GIF。
+ *  如果 duration_ms > 0，到时自动恢复轮播。
+ *  如果 duration_ms == 0，永久保持该表情。
+ *
+ * @param face_id     表情ID（happy/sad/neutral/.../sick，共18个）
+ * @param duration_ms 显示时长（毫秒），0=永久
+ * @return 0 成功，-1 失败（未初始化或face_id无效）
+ */
+int watch_expression_page_set_face(const char* face_id, int duration_ms);
+
 #endif /* WATCH_PAGES_H */

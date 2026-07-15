@@ -313,3 +313,119 @@ int lv_watch_pop_page(lv_obj_t *page)
   s_page_stack_size--;
   return 0;
 }
+
+/* ── set_face 集成 ──────────────────────────────────────────────── */
+
+/* face_id → GIF索引映射表（与 ai_agent set_face 白名单对齐） */
+typedef struct {
+    const char *face_id;
+    int         gif_index;
+} face_map_t;
+
+static const face_map_t s_face_map[] = {
+    { "happy",      0  },   /* SMILE.GIF    */
+    { "neutral",    1  },   /* CALM.GIF     */
+    { "love",       2  },   /* CARING.GIF   */
+    { "peaceful",   3  },   /* COMFORT.GIF  */
+    { "confused",   4  },   /* CONFUSED.GIF */
+    { "excited",    5  },   /* ENERGY.GIF   */
+    { "sick",       6  },   /* ERROR.GIF    */
+    { "worried",    7  },   /* FALL.GIF     */
+    { "angry",      7  },   /* FALL.GIF     (closest match) */
+    { "surprised",  5  },   /* ENERGY.GIF   (closest match) */
+    { "cool",       10 },   /* MUTED.GIF    */
+    { "shy",        11 },   /* SHY.GIF      */
+    { "sleepy",     12 },   /* SLEEP.GIF    */
+    { "sad",        1  },   /* CALM.GIF     (closest match) */
+    { "proud",      15 },   /* SUCCESS.GIF  */
+    { "thinking",   16 },   /* THINKING.GIF */
+    { "laugh",      0  },   /* SMILE.GIF    (closest match) */
+    { "dizzy",      9  },   /* LISTEN.GIF   (closest match) */
+};
+#define FACE_MAP_SIZE (sizeof(s_face_map) / sizeof(s_face_map[0]))
+
+/* 表情恢复定时器 */
+static lv_timer_t *s_restore_timer = NULL;
+
+/* 恢复定时器ID（用于在LVGL线程中创建） */
+static int s_restore_duration_ms = 0;
+
+static void restore_timer_cb(lv_timer_t *timer);
+
+/* 设置表情的异步回调 (LVGL线程安全) */
+static void set_face_async_cb(void *user_data)
+{
+    int gif_index = (int)(intptr_t)user_data;
+    if (s_expr_gif == NULL || s_expr_count <= 0) return;
+
+    /* 暂停自动轮播 */
+    if (s_switch_timer != NULL) {
+        lv_timer_pause(s_switch_timer);
+    }
+
+    /* 取消之前的恢复定时器 */
+    if (s_restore_timer != NULL) {
+        lv_timer_del(s_restore_timer);
+        s_restore_timer = NULL;
+    }
+
+    switch_to_expression(gif_index);
+
+    /* 在LVGL线程中创建恢复定时器（lv_timer_create非线程安全） */
+    if (s_restore_duration_ms > 0) {
+        s_restore_timer = lv_timer_create(restore_timer_cb,
+                                           (uint32_t)s_restore_duration_ms,
+                                           NULL);
+        if (s_restore_timer) {
+            lv_timer_set_repeat_count(s_restore_timer, 1);
+        }
+        s_restore_duration_ms = 0;
+    }
+}
+
+/* 恢复自动轮播的回调 */
+static void restore_timer_cb(lv_timer_t *timer)
+{
+    (void)timer;
+    s_restore_timer = NULL;
+
+    /* 恢复自动轮播 */
+    if (s_switch_timer != NULL) {
+        lv_timer_resume(s_switch_timer);
+    }
+
+    /* 切换到下一张，让表情继续流动 */
+    switch_to_expression(s_curr_index + 1);
+}
+
+int watch_expression_page_set_face(const char* face_id, int duration_ms)
+{
+    if (face_id == NULL || s_expr_gif == NULL || s_expr_count <= 0) {
+        return -1;
+    }
+
+    /* 查找 face_id 对应的 GIF 索引 */
+    int gif_index = -1;
+    for (size_t i = 0; i < FACE_MAP_SIZE; i++) {
+        if (strcmp(face_id, s_face_map[i].face_id) == 0) {
+            gif_index = s_face_map[i].gif_index;
+            break;
+        }
+    }
+
+    if (gif_index < 0) {
+        PAGE_LOG("set_face: unknown face_id '%s'", face_id);
+        return -1;
+    }
+
+    PAGE_LOG("set_face: %s -> index %d, duration=%dms",
+             face_id, gif_index, duration_ms);
+
+    /* 记录恢复时长（LVGL线程会读取并创建定时器） */
+    s_restore_duration_ms = duration_ms;
+
+    /* 在 LVGL 线程中执行表情切换 + 创建恢复定时器 */
+    lv_async_call(set_face_async_cb, (void*)(intptr_t)gif_index);
+
+    return 0;
+}
