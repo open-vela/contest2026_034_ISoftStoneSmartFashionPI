@@ -86,12 +86,12 @@ int main(int argc, FAR char *argv[])
     watch_resource_init();
 
     /* 启动开机logo → 开机动画流程 */
-    printf("[MAIN] Calling launcher_init...\n");
+    //printf("[MAIN] Calling launcher_init...\n");
     launcher_init(lv_scr_act());
-    printf("[MAIN] launcher_init completed\n");
+    //printf("[MAIN] launcher_init completed\n");
 
     /* 进入LVGL事件循环 */
-    printf("[MAIN] Entering LVGL event loop\n");
+    //printf("[MAIN] Entering LVGL event loop\n");
     while (1)
     {
       uint32_t idle;
