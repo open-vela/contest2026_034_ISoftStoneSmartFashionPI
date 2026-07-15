@@ -69,6 +69,13 @@ const void* watch_resource_get_img_expression(int index);
 int watch_resource_get_expression_count(void);
 
 /**
+ * Get the embedded bootlogo GIF image descriptor.
+ * The returned pointer is suitable for lv_gif_set_src() directly.
+ * @return A pointer to lv_image_dsc_t containing raw GIF data.
+ */
+const void* watch_resource_get_bootlogo_gif(void);
+
+/**
  * Check if the SD card is mounted and accessible.
  * @return 1 if SD card is ready, 0 otherwise.
  */
