@@ -125,16 +125,16 @@ static const int g_img_expression_count = sizeof(g_expression_gifs) / sizeof(g_e
 
 void watch_resource_init(void)
 {
-    RES_LOG("Expression GIFs embedded: %d images", g_img_expression_count);
+    //RES_LOG("Expression GIFs embedded: %d images", g_img_expression_count);
 
     /* 初始化 FreeType 库 */
     lv_result_t ft_res = lv_freetype_init(128);
-    printf("[RESOURCE] lv_freetype_init result: %d\n", (int)ft_res);
+    //printf("[RESOURCE] lv_freetype_init result: %d\n", (int)ft_res);
     if (ft_res != LV_RESULT_OK) {
-        printf("[RESOURCE] ERROR: lv_freetype_init failed\n");
+        //printf("[RESOURCE] ERROR: lv_freetype_init failed\n");
         return;
     }
-    printf("[RESOURCE] font_data_map[0].name=%s size=%u\n", g_font_data_map[0].name, (unsigned)g_font_data_map[0].size);
+    //printf("[RESOURCE] font_data_map[0].name=%s size=%u\n", g_font_data_map[0].name, (unsigned)g_font_data_map[0].size);
 
     /* 从嵌入式 C 数组创建字体 */
     int font_index = 0;

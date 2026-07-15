@@ -97,7 +97,7 @@ lv_obj_t *boot_animation_init(lv_obj_t *parent)
   /* 重置状态 */
   s_anim_finished = false;
 
-  fprintf(stderr, "[BOOT] boot_animation_init: GIF animation started\n");
+  //fprintf(stderr, "[BOOT] boot_animation_init: GIF animation started\n");
   return bg;
 }
 

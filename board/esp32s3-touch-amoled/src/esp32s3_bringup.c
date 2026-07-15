@@ -328,17 +328,18 @@ int esp32s3_bringup(void)
   esp32s3_configgpio(SPEAKER_ENABLE_GPIO, OUTPUT);
   esp32s3_gpiowrite(SPEAKER_ENABLE_GPIO, true);
 
-  printf(">>> ES8311: I2C0 addr=0x%02x freq=%d I2S1 <<<\n",
-         ES8311_I2C_ADDR, ES8311_I2C_FREQ);
+  //printf(">>> ES8311: I2C0 addr=0x%02x freq=%d I2S1 <<<\n", ES8311_I2C_ADDR, ES8311_I2C_FREQ);
 
   ret = esp32s3_es8311_initialize(i2c_audio, i2s_audio);
   if (ret != OK)
     {
-      printf(">>> ES8311: INIT FAILED ret=%d <<<\n", ret);
+      //printf(">>> ES8311: INIT FAILED ret=%d <<<\n", ret);
+      syslog(LOG_ERR, "ERROR: esp32s3_es8311_initialize failed: %d\n", ret);
     }
   else
     {
-      printf(">>> ES8311: INIT OK <<<\n");
+      //printf(">>> ES8311: INIT OK <<<\n");
+      syslog(LOG_INFO, "esp32s3_es8311_initialize successfully\n");
     }
 #    endif /* CONFIG_AUDIO_ES8311 */
 
