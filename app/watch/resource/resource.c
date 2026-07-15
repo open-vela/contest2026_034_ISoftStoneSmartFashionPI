@@ -20,6 +20,7 @@
 
 #include "image/generated/lvgl_assets.h"
 #include "power_png/generated/power_png_assets.h"
+#include "power_png/generated/gif_bootlogo.h"
 #include "image/Expression/gif2/generated/expression_gif2_assets.h"
 #include "font/generated/MiSans_Regular.h"
 
@@ -268,6 +269,11 @@ const void* watch_resource_get_img_expression(int index)
 int watch_resource_get_expression_count(void)
 {
     return g_img_expression_count;
+}
+
+const void* watch_resource_get_bootlogo_gif(void)
+{
+    return &gif_bootlogo;
 }
 
 int watch_resource_is_sd_ready(void)
