@@ -29,6 +29,7 @@
 #include <unistd.h>
 
 #include "watch_pages.h"
+#include "../settings/settings.h"
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -42,6 +43,8 @@
 #define PAGE_LOG(fmt, ...)
 #endif
 
+#define MAX_PAGE_STACK_SIZE 16
+
 /****************************************************************************
  * Private Data
  ****************************************************************************/
@@ -52,6 +55,10 @@ static lv_obj_t   *s_expr_gif     = NULL;  /* 表情GIF控件 */
 static lv_timer_t *s_switch_timer = NULL;  /* 自动轮播定时器 */
 static int         s_curr_index   = 0;     /* 当前表情索引 */
 static int         s_expr_count   = 0;     /* 表情图片总数 */
+
+/* 页面栈：用于跟踪二级/三级子页面 */
+static lv_obj_t *s_page_stack[MAX_PAGE_STACK_SIZE];
+static int       s_page_stack_size = 0;
 
 /****************************************************************************
  * Private Functions
@@ -172,6 +179,11 @@ lv_obj_t *watch_expression_page_init(lv_obj_t *parent)
   s_expr_gif = lv_gif_create(s_page_root);
   lv_obj_center(s_expr_gif);
 
+  /* 允许点击GIF进入设置主页 */
+  lv_obj_add_flag(s_expr_gif, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(s_expr_gif, settings_app_click_callback,
+                      LV_EVENT_CLICKED, NULL);
+
   /* 设置GIF控件背景透明且初始不可见，避免首帧闪烁 */
   lv_obj_set_style_bg_opa(s_expr_gif, LV_OPA_TRANSP, 0);
   lv_obj_set_style_opa(s_expr_gif, LV_OPA_TRANSP, 0);
@@ -254,4 +266,50 @@ void watch_expression_page_next(void)
 int watch_expression_page_get_current_index(void)
 {
   return s_curr_index;
+}
+
+int lv_watch_push_page(lv_obj_t *page)
+{
+  if (page == NULL)
+    {
+      return -1;
+    }
+
+  if (s_page_stack_size >= MAX_PAGE_STACK_SIZE)
+    {
+      return -2;
+    }
+
+  s_page_stack[s_page_stack_size++] = page;
+  return 0;
+}
+
+int lv_watch_pop_page(lv_obj_t *page)
+{
+  if (page == NULL || s_page_stack_size == 0)
+    {
+      return -1;
+    }
+
+  int i;
+  for (i = 0; i < s_page_stack_size; i++)
+    {
+      if (s_page_stack[i] == page)
+        {
+          break;
+        }
+    }
+
+  if (i >= s_page_stack_size)
+    {
+      return -2;
+    }
+
+  for (; i < s_page_stack_size - 1; i++)
+    {
+      s_page_stack[i] = s_page_stack[i + 1];
+    }
+
+  s_page_stack_size--;
+  return 0;
 }

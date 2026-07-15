@@ -15,16 +15,23 @@ MAINSRC = watch_main.c
 # #include "apps/launcher/launcher.h" and #include "resource/resource.h" work
 CFLAGS += -I.
 
-# Apps source files (boot + launcher + common)
+# Apps source files (boot + launcher + common + settings)
 CSRCS += $(shell find ./apps/boot -name "*.c")
 CSRCS += $(shell find ./apps/launcher -name "*.c")
 CSRCS += $(shell find ./apps/common -name "*.c")
+CSRCS += $(shell find ./apps/settings -name "*.c")
 
 # Resource manager
 CSRCS += resource/resource.c
 
 # Image data (boot logo)
 CSRCS += resource/image/app/boot/isoftstone_logo.c
+
+# Generated icon images (settings icons, wifi signal icons, etc.)
+CSRCS += $(wildcard ./resource/image/generated/*.c)
+
+# Font C array data (subset TTF embedded)
+CSRCS += $(wildcard ./resource/font/generated/*.c)
 
 # Expression GIF images embedded as C arrays (from gif2)
 EXPR_GIF2_GEN_DIR := ./resource/image/Expression/gif2/generated

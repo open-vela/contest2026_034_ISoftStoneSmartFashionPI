@@ -43,6 +43,10 @@ extern "C" {
 #define WATCH_SCREEN_WIDTH  410
 #define WATCH_SCREEN_HEIGHT 502
 
+/* 设置列表按钮尺寸 */
+#define WATCH_BTN_WIDTH  340
+#define WATCH_BTN_HEIGHT 100
+
 /* 表情图片尺寸（GIF格式，显示居中适配） */
 #define WATCH_EXPRESSION_IMG_W  300
 #define WATCH_EXPRESSION_IMG_H  300
@@ -101,5 +105,21 @@ void watch_expression_page_next(void);
  * @return int 当前显示的表情索引（0-based）
  */
 int watch_expression_page_get_current_index(void);
+
+/**
+ * @brief 将页面对象压入页面栈
+ *
+ * @param page 页面对象
+ * @return int 成功返回0，参数无效返回-1，栈满返回-2
+ */
+int lv_watch_push_page(lv_obj_t *page);
+
+/**
+ * @brief 将指定页面对象从页面栈中弹出
+ *
+ * @param page 页面对象
+ * @return int 成功返回0，参数无效返回-1，未找到返回-2
+ */
+int lv_watch_pop_page(lv_obj_t *page);
 
 #endif /* WATCH_PAGES_H */
