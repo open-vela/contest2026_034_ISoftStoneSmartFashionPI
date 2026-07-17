@@ -27,6 +27,7 @@
 
 #include <nuttx/config.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include <lvgl/lvgl.h>
 
 #ifdef __cplusplus
@@ -52,6 +53,15 @@ lv_obj_t *boot_animation_init(lv_obj_t *parent);
  * @param anim_obj 动画对象
  */
 void boot_animation_deinit(lv_obj_t *anim_obj);
+
+/**
+ * @brief 查询开机动画是否已播放完成
+ *
+ * GIF解码器播完最后一帧后通过LV_EVENT_READY置位完成标志。
+ *
+ * @return true 表示动画已播放完成
+ */
+bool boot_animation_is_finished(void);
 
 #ifdef __cplusplus
 }

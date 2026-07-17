@@ -184,9 +184,12 @@ lv_obj_t *watch_expression_page_init(lv_obj_t *parent)
   lv_obj_add_event_cb(s_expr_gif, settings_app_click_callback,
                       LV_EVENT_CLICKED, NULL);
 
-  /* 设置GIF控件背景透明且初始不可见，避免首帧闪烁 */
+  /* 设置GIF控件背景透明。
+   * 首次加载时不做淡入动画——直接显示第一帧，
+   * 避免从开机动画切换到表情页时出现黑屏间隙。
+   * 后续轮播切换由 switch_to_expression() 走淡入/淡出流程。 */
   lv_obj_set_style_bg_opa(s_expr_gif, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_opa(s_expr_gif, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_opa(s_expr_gif, LV_OPA_COVER, 0);
 
   /* 让LVGL处理一次事件循环，确保控件完全初始化 */
   lv_timer_handler();
@@ -207,17 +210,8 @@ lv_obj_t *watch_expression_page_init(lv_obj_t *parent)
 
       if (w > 0 && h > 0)
         {
-          /* 首张GIF加载成功，重启并执行淡入动画 */
+          /* 首张GIF加载成功，重启播放 */
           lv_gif_restart(s_expr_gif);
-
-          lv_anim_t fade_anim;
-          lv_anim_init(&fade_anim);
-          lv_anim_set_var(&fade_anim, s_expr_gif);
-          lv_anim_set_exec_cb(&fade_anim, fade_in_anim_cb);
-          lv_anim_set_values(&fade_anim, LV_OPA_TRANSP, LV_OPA_COVER);
-          lv_anim_set_time(&fade_anim, WATCH_EXPRESSION_FADE_TIME_MS);
-          lv_anim_set_path_cb(&fade_anim, lv_anim_path_ease_out);
-          lv_anim_start(&fade_anim);
           break;
         }
     }
