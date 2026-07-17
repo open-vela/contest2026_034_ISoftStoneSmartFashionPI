@@ -28,6 +28,7 @@
 
 #include <stdio.h>
 #include <fcntl.h>
+#include <sched.h>
 #include <unistd.h>
 #include <syslog.h>
 #include <sys/stat.h>
@@ -108,6 +109,95 @@ void esp32s3_bsp_opiflash_set_required_regs(void)
 {
 }
 #endif
+
+#ifdef CONFIG_ESP32S3_SDMMC
+/****************************************************************************
+ * Name: sdmmc_mount_task
+ *
+ * Description:
+ *   Background task that initializes the SDMMC slot and mounts the SD card
+ *   with retries.  Card probing plus the mount retry loop can take several
+ *   seconds (worst case when no card is inserted).  Running this
+ *   synchronously from esp32s3_bringup() delayed NSH and the watch UI,
+ *   leaving the screen black for that whole time.
+ *
+ ****************************************************************************/
+
+static int sdmmc_mount_task(int argc, FAR char *argv[])
+{
+  int ret;
+  int mount_retries;
+  struct stat buf;
+
+  /* Create mount point for SD card */
+
+  ret = mkdir("/mnt", 0755);
+  if (ret < 0 && errno != EEXIST)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to create /mnt: %d\n", ret);
+    }
+
+  ret = mkdir("/mnt/sd", 0755);
+  if (ret < 0 && errno != EEXIST)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to create /mnt/sd: %d\n", ret);
+    }
+
+  /* SD initialize.
+   * The TF card slot is wired for SPI (MOSI=GPIO1, SCK=GPIO2, MISO=GPIO3,
+   * SDCS=GPIO17) but we use native SDMMC 1-bit mode.  The card samples its
+   * CS/DAT3 line at power-on to decide between SPI and SD mode; drive GPIO17
+   * high so the card enters SD mode and stays there after a soft reboot.
+   */
+
+  esp32s3_configgpio(17, OUTPUT);
+  esp32s3_gpiowrite(17, true);
+  usleep(10000);
+
+  syslog(LOG_INFO, "Initializing SDMMC...\n");
+  ret = board_sdmmc_initialize();
+  if (ret < 0)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to initialize SDMMC: %d\n", ret);
+    }
+  else
+    {
+      syslog(LOG_INFO, "SDMMC initialized successfully\n");
+    }
+
+  /* Wait for SD card to be ready and try to mount with retries.
+   * Some cards take longer to become ready after power-on, so we first
+   * wait for the block device to appear and then retry the mount.
+   */
+
+  syslog(LOG_INFO, "Waiting for SD card...\n");
+
+  for (mount_retries = 0; mount_retries < 20; mount_retries++)
+    {
+      if (stat("/dev/mmcsd1", &buf) == 0)
+        {
+          ret = nx_mount("/dev/mmcsd1", "/mnt/sd", "vfat", 0, NULL);
+          if (ret == OK)
+            {
+              syslog(LOG_INFO, "SD card mounted at /mnt/sd\n");
+              break;
+            }
+
+          syslog(LOG_ERR, "ERROR: Failed to mount SD card (attempt %d): %d\n",
+                 mount_retries + 1, ret);
+        }
+      else
+        {
+          syslog(LOG_INFO, "SD card block device not ready (attempt %d)\n",
+                 mount_retries + 1);
+        }
+
+      usleep(200000);  /* Wait 200ms before retry */
+    }
+
+  return OK;
+}
+#endif /* CONFIG_ESP32S3_SDMMC */
 
 /****************************************************************************
  * Public Functions
@@ -355,69 +445,19 @@ int esp32s3_bringup(void)
 #endif /* CONFIG_ESP32S3_I2S */
 
 #ifdef CONFIG_ESP32S3_SDMMC
-  /* Create mount point for SD card */
-  ret = mkdir("/mnt", 0755);
-  if (ret < 0 && errno != EEXIST)
-    {
-      syslog(LOG_ERR, "ERROR: Failed to create /mnt: %d\n", ret);
-    }
-
-  ret = mkdir("/mnt/sd", 0755);
-  if (ret < 0 && errno != EEXIST)
-    {
-      syslog(LOG_ERR, "ERROR: Failed to create /mnt/sd: %d\n", ret);
-    }
-
-  /* SD initialize.
-   * The TF card slot is wired for SPI (MOSI=GPIO1, SCK=GPIO2, MISO=GPIO3,
-   * SDCS=GPIO17) but we use native SDMMC 1-bit mode.  The card samples its
-   * CS/DAT3 line at power-on to decide between SPI and SD mode; drive GPIO17
-   * high so the card enters SD mode and stays there after a soft reboot.
+  /* Initialize and mount the SD card in a background task.  Card probing
+   * plus the mount retry loop can take several seconds (worst case when no
+   * card is inserted); doing it synchronously here blocked NSH startup and
+   * the watch UI, leaving the screen black for that whole time.
+   * Keep the same stack size and priority as the init task that used to run
+   * this code synchronously (CONFIG_INIT_STACKSIZE / 100).
    */
-  esp32s3_configgpio(17, OUTPUT);
-  esp32s3_gpiowrite(17, true);
-  usleep(10000);
 
-  syslog(LOG_INFO, "Initializing SDMMC...\n");
-  ret = board_sdmmc_initialize();                    // done
+  ret = task_create("sdmmc_init", 100, CONFIG_INIT_STACKSIZE,
+                    sdmmc_mount_task, NULL);
   if (ret < 0)
     {
-      syslog(LOG_ERR, "ERROR: Failed to initialize SDMMC: %d\n", ret);
-    }
-  else
-    {
-      syslog(LOG_INFO, "SDMMC initialized successfully\n");
-    }
-
-  /* Wait for SD card to be ready and try to mount with retries.
-   * Some cards take longer to become ready after power-on, so we first
-   * wait for the block device to appear and then retry the mount.
-   */
-  syslog(LOG_INFO, "Waiting for SD card...\n");
-
-  int mount_retries;
-  struct stat buf;
-  for (mount_retries = 0; mount_retries < 20; mount_retries++)
-    {
-      if (stat("/dev/mmcsd1", &buf) == 0)
-        {
-          ret = nx_mount("/dev/mmcsd1", "/mnt/sd", "vfat", 0, NULL);
-          if (ret == OK)
-            {
-              syslog(LOG_INFO, "SD card mounted at /mnt/sd\n");
-              break;
-            }
-
-          syslog(LOG_ERR, "ERROR: Failed to mount SD card (attempt %d): %d\n",
-                 mount_retries + 1, ret);
-        }
-      else
-        {
-          syslog(LOG_INFO, "SD card block device not ready (attempt %d)\n",
-                 mount_retries + 1);
-        }
-
-      usleep(200000);  /* Wait 200ms before retry */
+      syslog(LOG_ERR, "ERROR: Failed to start SDMMC mount task: %d\n", ret);
     }
 #endif /* CONFIG_ESP32S3_SDMMC */
 

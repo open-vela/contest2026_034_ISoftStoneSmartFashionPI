@@ -102,6 +102,16 @@ lv_obj_t *boot_animation_init(lv_obj_t *parent)
 }
 
 /**
+ * @brief 查询开机动画是否已播放完成
+ *
+ * @return true 表示GIF已播放完最后一帧
+ */
+bool boot_animation_is_finished(void)
+{
+  return s_anim_finished;
+}
+
+/**
  * @brief 销毁开机动画
  *
  * @param anim_obj 动画对象

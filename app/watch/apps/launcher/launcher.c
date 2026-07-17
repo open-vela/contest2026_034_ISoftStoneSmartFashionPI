@@ -37,7 +37,8 @@
  ****************************************************************************/
 
 #define LOGO_DISPLAY_TIME      1000   /* 开机logo显示时间(ms) */
-#define ANIMATION_DISPLAY_TIME 9000   /* 开机动画显示时间(ms) */
+#define ANIMATION_DISPLAY_TIME 9000   /* 开机动画最长显示时间(ms)，超时强制切换 */
+#define ANIM_CHECK_PERIOD_MS   100    /* 动画播放完成检测周期(ms) */
 
 /****************************************************************************
  * Private Data
@@ -55,12 +56,14 @@ typedef enum
 static launcher_state_t current_state = STATE_INIT; /* 当前状态 */
 static lv_obj_t *content_area = NULL;           /* 内容区域 */
 static lv_obj_t *current_obj = NULL;            /* 当前显示的对象 */
+static uint32_t anim_wait_ms = 0;               /* 动画已等待时间(ms) */
 
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
 
 static void state_timer_cb(lv_timer_t *timer);
+static void anim_check_timer_cb(lv_timer_t *timer);
 
 /**
  * @brief 切换到下一个状态
@@ -92,21 +95,21 @@ static void goto_next_state(void)
         current_obj = boot_animation_init(content_area);
         lv_task_handler();
 
-        /* 设置动画显示时间 */
-        lv_timer_t *timer2 = lv_timer_create(state_timer_cb, ANIMATION_DISPLAY_TIME, NULL);
-        lv_timer_set_repeat_count(timer2, 1);
+        /* 周期性检测动画是否播完，播完立即切换（最长等待 ANIMATION_DISPLAY_TIME） */
+        anim_wait_ms = 0;
+        lv_timer_create(anim_check_timer_cb, ANIM_CHECK_PERIOD_MS, NULL);
         break;
 
       case STATE_SHOW_ANIM:
         /* 动画播放完成，进入表情页面状态 */
         current_state = STATE_SHOW_EXPRESSION;
 
+        /* 先创建表情页面再销毁动画页面，避免切换间隙出现黑屏 */
+        lv_obj_t *new_obj = watch_expression_page_init(content_area);
+
         /* 销毁动画 */
         boot_animation_deinit(current_obj);
-        current_obj = NULL;
-
-        /* 启动表情展示页面 */
-        current_obj = watch_expression_page_init(content_area);
+        current_obj = new_obj;
         if (current_obj == NULL)
           {
             printf("[LAUNCHER] ERROR: Failed to init expression page\n");
@@ -131,6 +134,22 @@ static void goto_next_state(void)
 static void state_timer_cb(lv_timer_t *timer)
 {
   goto_next_state();
+}
+
+/**
+ * @brief 动画播放完成检测定时器回调
+ *
+ * GIF播完最后一帧（boot_animation_is_finished）后立即切换到表情页面；
+ * 超过 ANIMATION_DISPLAY_TIME 未播完则强制切换，避免一直停留在动画页。
+ */
+static void anim_check_timer_cb(lv_timer_t *timer)
+{
+  anim_wait_ms += ANIM_CHECK_PERIOD_MS;
+  if (boot_animation_is_finished() || anim_wait_ms >= ANIMATION_DISPLAY_TIME)
+    {
+      lv_timer_del(timer);
+      goto_next_state();
+    }
 }
 
 /****************************************************************************
