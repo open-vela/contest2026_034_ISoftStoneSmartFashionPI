@@ -138,6 +138,7 @@ static int wifi_find_saved(const char *ssid)
 
 /* WiFi配置文件路径 */
 #define WIFI_CONFIG_FILE "/mnt/spif/wifi_config.txt"
+#define WIFI_ENABLED_FILE "/mnt/spif/wifi_enabled.txt"
 
 /* 保存WiFi列表到文件 */
 static void wifi_save_to_file(void)
@@ -191,6 +192,37 @@ static void wifi_load_from_file(void)
     
     fclose(fp);
     WATCH_DBG_LOG("[WiFi] Loaded %d WiFi from file", g_saved_wifi_count);
+}
+
+/* 保存WiFi开关状态到文件 */
+static void wifi_save_enabled(bool enabled)
+{
+    FILE *fp = fopen(WIFI_ENABLED_FILE, "w");
+    if (!fp) {
+        WATCH_DBG_LOG("[WiFi] Failed to open enabled file for writing\n");
+        return;
+    }
+    fprintf(fp, "%d\n", enabled ? 1 : 0);
+    fclose(fp);
+    WATCH_DBG_LOG("[WiFi] Saved enabled state: %d\n", enabled);
+}
+
+/* 从文件加载WiFi开关状态 */
+static bool wifi_load_enabled(void)
+{
+    FILE *fp = fopen(WIFI_ENABLED_FILE, "r");
+    if (!fp) {
+        WATCH_DBG_LOG("[WiFi] No enabled file found, defaulting to off\n");
+        return false;
+    }
+    int val = 0;
+    if (fscanf(fp, "%d", &val) != 1) {
+        val = 0;
+    }
+    fclose(fp);
+    bool enabled = (val == 1);
+    WATCH_DBG_LOG("[WiFi] Loaded enabled state: %d\n", enabled);
+    return enabled;
 }
 
 /* 获取保存的WiFi密码，NULL表示未找到 */
@@ -770,7 +802,7 @@ static void wifi_refresh_btn_cb(lv_event_t *e)
     }
 }
 
-/* WiFi自动重连线程 */
+/* WiFi自动重连线程：遍历所有保存的WiFi，依次尝试连接直到成功 */
 static void *wifi_reconnect_thread(void *arg)
 {
     WATCH_DBG_LOG("[WiFi] Reconnect thread started");
@@ -778,66 +810,92 @@ static void *wifi_reconnect_thread(void *arg)
     // 等待WiFi完全启用
     sleep(3);
     
-    // 找到最后一个连接的WiFi（列表中的第一个）
     if (g_saved_wifi_count == 0) {
         WATCH_DBG_LOG("[WiFi] No saved WiFi for auto-reconnect");
         g_is_reconnecting = false;
         return NULL;
     }
     
-    const char *ssid = g_saved_wifi_list[0].ssid;
-    const char *password = g_saved_wifi_list[0].password;
-    
-    WATCH_DBG_LOG("[WiFi] Auto-reconnecting to: %s", ssid);
-    
-    // 尝试连接保存的WiFi
-    wifi_connect("wlan0", ssid, password);
-    
-    // 等待连接建立（增加等待时间）
-    WATCH_DBG_LOG("[WiFi] Waiting for connection to establish...");
-    sleep(5);
-    
-    // 验证连接状态
-    int sock = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sock >= 0) {
-        char current_essid[WAPI_ESSID_MAX_SIZE + 1];
-        memset(current_essid, 0, sizeof(current_essid));
+    // 遍历所有保存的WiFi，依次尝试连接
+    for (int i = 0; i < g_saved_wifi_count; i++) {
+        const char *ssid = g_saved_wifi_list[i].ssid;
+        const char *password = g_saved_wifi_list[i].password;
         
-        int retries = 3;
-        while (retries > 0) {
-            if (wapi_get_essid(sock, "wlan0", current_essid, NULL) == 0 && 
-                strlen(current_essid) > 0) {
-                break;
-            }
-            WATCH_DBG_LOG("[WiFi] ESSID not ready, retrying... (%d)", retries);
-            sleep(1);
-            retries--;
-        }
+        WATCH_DBG_LOG("[WiFi] Trying saved WiFi [%d/%d]: %s\n", i + 1, g_saved_wifi_count, ssid);
         
-        WATCH_DBG_LOG("[WiFi] Current ESSID: %s (expected: %s)", current_essid, ssid);
+        // 尝试连接
+        wifi_connect("wlan0", ssid, password);
         
-        if (strlen(current_essid) > 0 &&
-            strcmp(current_essid, ssid) == 0) {
-            // 连接成功
-            strncpy(g_connected_ssid, ssid, sizeof(g_connected_ssid) - 1);
-            g_connected_ssid[sizeof(g_connected_ssid) - 1] = '\0';
-            WATCH_DBG_LOG("[WiFi] Auto-reconnect success: %s", g_connected_ssid);
-            /* home_control_reset_server removed */
-        } else {
-            // 连接失败，再检查IP地址
+        // 等待连接建立
+        WATCH_DBG_LOG("[WiFi] Waiting for connection to establish...\n");
+        sleep(5);
+        
+        // 验证连接状态
+        bool connect_success = false;
+        int sock = socket(AF_INET, SOCK_DGRAM, 0);
+        if (sock >= 0) {
+            // 检查1：有IP地址（最可靠的成功指标）
             struct in_addr ip_addr;
             if (wapi_get_ip(sock, "wlan0", &ip_addr) == 0 && ip_addr.s_addr != 0) {
-                // 有IP地址也算成功
-                strncpy(g_connected_ssid, ssid, sizeof(g_connected_ssid) - 1);
-                g_connected_ssid[sizeof(g_connected_ssid) - 1] = '\0';
-                WATCH_DBG_LOG("[WiFi] Auto-reconnect success (has IP): %s", g_connected_ssid);
-    /* home_control_reset_server removed: no home_control dependency */
-            } else {
-                WATCH_DBG_LOG("[WiFi] Auto-reconnect failed");
-                g_connected_ssid[0] = '\0';
+                connect_success = true;
+                WATCH_DBG_LOG("[WiFi] Connection verified (has IP): %s\n", inet_ntoa(ip_addr));
             }
+            
+            // 检查2：ESSID匹配且接口运行中
+            if (!connect_success) {
+                char current_essid[WAPI_ESSID_MAX_SIZE + 1];
+                memset(current_essid, 0, sizeof(current_essid));
+                
+                int retries = 3;
+                while (retries > 0) {
+                    if (wapi_get_essid(sock, "wlan0", current_essid, NULL) == 0 && 
+                        strlen(current_essid) > 0) {
+                        break;
+                    }
+                    WATCH_DBG_LOG("[WiFi] ESSID not ready, retrying... (%d)\n", retries);
+                    sleep(1);
+                    retries--;
+                }
+                
+                WATCH_DBG_LOG("[WiFi] Current ESSID: %s (expected: %s)\n", current_essid, ssid);
+                
+                if (strlen(current_essid) > 0 && strcmp(current_essid, ssid) == 0) {
+                    // ESSID匹配，进一步检查接口是否运行
+                    uint8_t if_flags = 0;
+                    if (netlib_getifstatus("wlan0", &if_flags) == 0 && 
+                        IFF_IS_RUNNING(if_flags)) {
+                        connect_success = true;
+                        WATCH_DBG_LOG("[WiFi] Connection verified (ESSID + running)\n");
+                    } else {
+                        WATCH_DBG_LOG("[WiFi] ESSID matches but interface not running (auth failed?)\n");
+                    }
+                }
+            }
+            close(sock);
         }
-        close(sock);
+        
+        if (connect_success) {
+            strncpy(g_connected_ssid, ssid, sizeof(g_connected_ssid) - 1);
+            g_connected_ssid[sizeof(g_connected_ssid) - 1] = '\0';
+            g_connect_time = time(NULL);
+            WATCH_DBG_LOG("[WiFi] Auto-reconnect success: %s\n", g_connected_ssid);
+            break;
+        }
+        
+        WATCH_DBG_LOG("[WiFi] Connection to %s failed, trying next...\n", ssid);
+        
+        // 断开当前连接，准备尝试下一个WiFi
+        if (i < g_saved_wifi_count - 1) {
+            wifi_disconnect("wlan0");
+            sleep(1);
+            // 重新启用WiFi接口
+            wifi_enable("wlan0");
+            sleep(1);
+        }
+    }
+    
+    if (strlen(g_connected_ssid) == 0) {
+        WATCH_DBG_LOG("[WiFi] All saved WiFi connection attempts failed\n");
     }
     
     g_is_reconnecting = false;
@@ -1495,20 +1553,23 @@ static void wifi_status_check_timer_cb(lv_timer_t *timer)
         
         // 连续失败3次才认为断开
         if (g_status_fail_count >= 3) {
-            WATCH_DBG_LOG("[WiFi] Connection lost after %d failures: %s", g_status_fail_count, g_connected_ssid);
-            
+            WATCH_DBG_LOG("[WiFi] Connection lost after %d failures: %s\n", g_status_fail_count, g_connected_ssid);
+                        
             // 清除连接状态（保留保存的WiFi信息）
             g_connected_ssid[0] = '\0';
             g_connect_time = 0;
             g_status_fail_count = 0;
-            
+                        
             // 重置智能家居服务器信息
             /* home_control_reset_server removed */
-            
+                        
             // 刷新UI
             if (g_list_cont) {
                 wifi_update_list_ui(g_list_cont);
             }
+                        
+            // 尝试自动重连
+            wifi_auto_reconnect_check();
         }
     }
 }
@@ -1546,6 +1607,7 @@ static void wifi_switch_event_handler(lv_event_t * e)
                 // 启用 WiFi
                 WATCH_DBG_LOG("[WiFi] Enabling WiFi...");
                 g_wifi_enabled = true;  // 保存开关状态
+                wifi_save_enabled(true);  // 持久化开关状态
                 if (wifi_enable("wlan0") == 0) {
                     // 启动扫描
                     WATCH_DBG_LOG("[WiFi] Starting scan...");
@@ -1575,6 +1637,7 @@ static void wifi_switch_event_handler(lv_event_t * e)
                 // 禁用 WiFi
                 WATCH_DBG_LOG("[WiFi] Disabling WiFi...");
                 g_wifi_enabled = false;  // 保存开关状态
+                wifi_save_enabled(false);  // 持久化开关状态
                 wifi_disable("wlan0");
                 
                 // 清除已连接的 WiFi 状态（但保留保存的WiFi信息用于重连）
@@ -1734,6 +1797,50 @@ static void settings_wifi_create(lv_obj_t *parent)
 
     // 将WiFi页面压入页面栈，支持PWR短按返回主页
     lv_watch_push_page(cont);
+}
+
+/* WiFi开机自动初始化：加载配置、恢复开关状态、自动连接已保存的WiFi */
+void settings_wifi_auto_init(void)
+{
+    WATCH_DBG_LOG("[WiFi] Auto init starting...\n");
+
+    /* 1. 加载已保存的WiFi列表 */
+    wifi_load_from_file();
+
+    /* 2. 加载WiFi开关状态 */
+    g_wifi_enabled = wifi_load_enabled();
+
+    WATCH_DBG_LOG("[WiFi] Auto init: enabled=%d, saved_count=%d\n",
+           g_wifi_enabled, g_saved_wifi_count);
+
+    /* 3. 如果没有保存的WiFi配置，保持关闭状态 */
+    if (g_wifi_enabled && g_saved_wifi_count == 0) {
+        WATCH_DBG_LOG("[WiFi] No saved WiFi config, keeping WiFi disabled\n");
+        g_wifi_enabled = false;
+        wifi_save_enabled(false);
+        return;
+    }
+
+    /* 4. 如果WiFi未启用，不做任何操作 */
+    if (!g_wifi_enabled) {
+        WATCH_DBG_LOG("[WiFi] WiFi was not enabled, skipping auto-connect\n");
+        return;
+    }
+
+    /* 5. 启用WiFi接口 */
+    WATCH_DBG_LOG("[WiFi] Enabling WiFi interface for auto-connect...\n");
+    wifi_enable("wlan0");
+
+    /* 6. 启动连接状态检查定时器（检测断线后自动重连） */
+    if (g_status_timer) {
+        lv_timer_del(g_status_timer);
+    }
+    g_status_timer = lv_timer_create(wifi_status_check_timer_cb, 3000, NULL);
+
+    /* 7. 在后台线程中尝试自动连接已保存的WiFi */
+    wifi_auto_reconnect_check();
+
+    WATCH_DBG_LOG("[WiFi] Auto init completed, reconnect thread started\n");
 }
 
 void settings_wifi_event_cb(lv_event_t *e) 
