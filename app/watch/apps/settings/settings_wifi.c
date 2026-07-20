@@ -126,7 +126,7 @@ static int wifi_find_saved(const char *ssid)
 }
 
 /* WiFi配置文件路径 */
-#define WIFI_CONFIG_FILE "/data/wifi_config.txt"
+#define WIFI_CONFIG_FILE "/mnt/spif/wifi_config.txt"
 
 /* 保存WiFi列表到文件 */
 static void wifi_save_to_file(void)
