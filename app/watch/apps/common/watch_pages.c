@@ -37,7 +37,7 @@
 
 #define PAGE_TAG "[PAGE] "
 
-#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_BOOT
+#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
 #define PAGE_LOG(fmt, ...)  printf(PAGE_TAG fmt "\n", ##__VA_ARGS__)
 #else
 #define PAGE_LOG(fmt, ...)

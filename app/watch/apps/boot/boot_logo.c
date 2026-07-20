@@ -31,6 +31,14 @@
 #include "../../resource/resource.h"
 #include "../common/watch_pages.h"
 
+/* 调试打印开关：menuconfig 打开 CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG 后生效。
+ * 默认关闭：无 USB 主机时控制台 FIFO 写满会阻塞系统。
+ */
+#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
+#  define WATCH_DBG_LOG(fmt, ...) printf(fmt "\n", ##__VA_ARGS__)
+#else
+#  define WATCH_DBG_LOG(fmt, ...)
+#endif
 
 /****************************************************************************
  * Public Functions
@@ -59,7 +67,7 @@ lv_obj_t *boot_logo_init(lv_obj_t *parent)
   if (img_src) {
     lv_img_set_src(logo, img_src);
   } else {
-    fprintf(stderr, "[BOOT] boot_logo_init: img_src is NULL\n");
+    WATCH_DBG_LOG("[BOOT] boot_logo_init: img_src is NULL");
   }
   lv_obj_center(logo);
   return bg;

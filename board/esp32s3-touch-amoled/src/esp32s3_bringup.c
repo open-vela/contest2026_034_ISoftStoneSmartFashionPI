@@ -104,6 +104,15 @@
 
 #include "esp32s3-touch-amoled.h"
 
+/* 调试打印开关：menuconfig 打开 CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG 后生效。
+ * 默认关闭：无 USB 主机时控制台 FIFO 写满会阻塞系统。
+ */
+#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
+#  define WATCH_DBG_LOG(fmt, ...) printf(fmt "\n", ##__VA_ARGS__)
+#else
+#  define WATCH_DBG_LOG(fmt, ...)
+#endif
+
 #ifdef CONFIG_ESP32S3_FLASH_MODE_OCT
 void esp32s3_bsp_opiflash_set_required_regs(void)
 {
@@ -404,13 +413,13 @@ int esp32s3_bringup(void)
   i2s_audio = esp32s3_i2sbus_initialize(ESP32S3_I2S1);
   if (i2s_audio == NULL)
     {
-      printf("Failed to initialize I2S%d\n", ESP32S3_I2S1);
+      WATCH_DBG_LOG("Failed to initialize I2S%d", ESP32S3_I2S1);
     }
    
   i2c_audio = esp32s3_i2cbus_initialize(ESP32S3_I2C0);
   if (i2c_audio == NULL)
     {
-      printf("Failed to initialize I2C%d\n", ESP32S3_I2C0);
+      WATCH_DBG_LOG("Failed to initialize I2C%d", ESP32S3_I2C0);
     }
 
 #    ifdef CONFIG_AUDIO_ES8311
@@ -418,17 +427,17 @@ int esp32s3_bringup(void)
   esp32s3_configgpio(SPEAKER_ENABLE_GPIO, OUTPUT);
   esp32s3_gpiowrite(SPEAKER_ENABLE_GPIO, true);
 
-  //printf(">>> ES8311: I2C0 addr=0x%02x freq=%d I2S1 <<<\n", ES8311_I2C_ADDR, ES8311_I2C_FREQ);
+  //WATCH_DBG_LOG(">>> ES8311: I2C0 addr=0x%02x freq=%d I2S1 <<<", ES8311_I2C_ADDR, ES8311_I2C_FREQ);
 
   ret = esp32s3_es8311_initialize(i2c_audio, i2s_audio);
   if (ret != OK)
     {
-      //printf(">>> ES8311: INIT FAILED ret=%d <<<\n", ret);
+      //WATCH_DBG_LOG(">>> ES8311: INIT FAILED ret=%d <<<", ret);
       syslog(LOG_ERR, "ERROR: esp32s3_es8311_initialize failed: %d\n", ret);
     }
   else
     {
-      //printf(">>> ES8311: INIT OK <<<\n");
+      //WATCH_DBG_LOG(">>> ES8311: INIT OK <<<");
       syslog(LOG_INFO, "esp32s3_es8311_initialize successfully\n");
     }
 #    endif /* CONFIG_AUDIO_ES8311 */

@@ -16,6 +16,17 @@
 #include "../../resource/resource.h"
 #include "../../resource/image/generated/lvgl_assets.h"
 
+#include <nuttx/config.h>
+
+/* 调试打印开关：menuconfig 打开 CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG 后生效。
+ * 默认关闭：无 USB 主机时控制台 FIFO 写满会阻塞系统。
+ */
+#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
+#  define WATCH_DBG_LOG(fmt, ...) printf(fmt "\n", ##__VA_ARGS__)
+#else
+#  define WATCH_DBG_LOG(fmt, ...)
+#endif
+
 /* WiFi 扫描结果结构 */
 typedef struct {
     char ssid[64];
@@ -133,7 +144,7 @@ static void wifi_save_to_file(void)
 {
     FILE *fp = fopen(WIFI_CONFIG_FILE, "w");
     if (!fp) {
-        printf("[WiFi] Failed to open config file for writing\n");
+        WATCH_DBG_LOG("[WiFi] Failed to open config file for writing");
         return;
     }
     
@@ -142,7 +153,7 @@ static void wifi_save_to_file(void)
     }
     
     fclose(fp);
-    printf("[WiFi] Saved %d WiFi to file\n", g_saved_wifi_count);
+    WATCH_DBG_LOG("[WiFi] Saved %d WiFi to file", g_saved_wifi_count);
 }
 
 /* 从文件加载WiFi列表 */
@@ -150,7 +161,7 @@ static void wifi_load_from_file(void)
 {
     FILE *fp = fopen(WIFI_CONFIG_FILE, "r");
     if (!fp) {
-        printf("[WiFi] No config file found, starting fresh\n");
+        WATCH_DBG_LOG("[WiFi] No config file found, starting fresh");
         return;
     }
     
@@ -179,7 +190,7 @@ static void wifi_load_from_file(void)
     }
     
     fclose(fp);
-    printf("[WiFi] Loaded %d WiFi from file\n", g_saved_wifi_count);
+    WATCH_DBG_LOG("[WiFi] Loaded %d WiFi from file", g_saved_wifi_count);
 }
 
 /* 获取保存的WiFi密码，NULL表示未找到 */
@@ -200,7 +211,7 @@ static void wifi_save(const char *ssid, const char *password)
         // 已存在，更新密码
         strncpy(g_saved_wifi_list[idx].password, password, sizeof(g_saved_wifi_list[0].password) - 1);
         g_saved_wifi_list[idx].password[sizeof(g_saved_wifi_list[0].password) - 1] = '\0';
-        printf("[WiFi] Updated saved WiFi: %s\n", ssid);
+        WATCH_DBG_LOG("[WiFi] Updated saved WiFi: %s", ssid);
     } else if (g_saved_wifi_count < MAX_SAVED_WIFI) {
         // 添加新的
         strncpy(g_saved_wifi_list[g_saved_wifi_count].ssid, ssid, sizeof(g_saved_wifi_list[0].ssid) - 1);
@@ -208,9 +219,9 @@ static void wifi_save(const char *ssid, const char *password)
         strncpy(g_saved_wifi_list[g_saved_wifi_count].password, password, sizeof(g_saved_wifi_list[0].password) - 1);
         g_saved_wifi_list[g_saved_wifi_count].password[sizeof(g_saved_wifi_list[0].password) - 1] = '\0';
         g_saved_wifi_count++;
-        printf("[WiFi] Saved new WiFi: %s (total: %d)\n", ssid, g_saved_wifi_count);
+        WATCH_DBG_LOG("[WiFi] Saved new WiFi: %s (total: %d)", ssid, g_saved_wifi_count);
     } else {
-        printf("[WiFi] Saved WiFi list full, cannot save: %s\n", ssid);
+        WATCH_DBG_LOG("[WiFi] Saved WiFi list full, cannot save: %s", ssid);
         return;
     }
     
@@ -229,7 +240,7 @@ static void wifi_forget(const char *ssid)
         }
         g_saved_wifi_count--;
         memset(&g_saved_wifi_list[g_saved_wifi_count], 0, sizeof(saved_wifi_t));
-        printf("[WiFi] Forgot WiFi: %s (remaining: %d)\n", ssid, g_saved_wifi_count);
+        WATCH_DBG_LOG("[WiFi] Forgot WiFi: %s (remaining: %d)", ssid, g_saved_wifi_count);
         
         // 保存到文件
         wifi_save_to_file();
@@ -267,7 +278,7 @@ static int wifi_connect(const char *ifname, const char *ssid, const char *passwo
 {
     char command[256];
     
-    printf("[WiFi] Connecting to %s\n", ssid);
+    WATCH_DBG_LOG("[WiFi] Connecting to %s", ssid);
     
     /* 1. 启用 WiFi 接口 */
     snprintf(command, sizeof(command), "ifup %s", ifname);
@@ -289,7 +300,7 @@ static int wifi_connect(const char *ifname, const char *ssid, const char *passwo
     snprintf(command, sizeof(command), "ifconfig %s dhcp", ifname);
     system(command);
     
-    printf("[WiFi] Connection completed\n");
+    WATCH_DBG_LOG("[WiFi] Connection completed");
     return 0;
 }
 
@@ -429,7 +440,7 @@ static void keyboard_btn_event_cb(lv_event_t *e)
                 // 保存WiFi用于自动重连
                 wifi_save(g_selected_ssid, g_wifi_password);
                 
-                printf("[WiFi] Connected to: %s (saved for auto-reconnect)\n", g_connected_ssid);
+                WATCH_DBG_LOG("[WiFi] Connected to: %s (saved for auto-reconnect)", g_connected_ssid);
                 
                 // 重置智能家居服务器信息，下次使用时重新发现
     /* home_control_reset_server removed: no home_control dependency */
@@ -444,7 +455,7 @@ static void keyboard_btn_event_cb(lv_event_t *e)
                     wifi_update_list_ui(g_list_cont);
                 }
             } else {
-                printf("[WiFi] Password too short (min 8 characters)\n");
+                WATCH_DBG_LOG("[WiFi] Password too short (min 8 characters)");
             }
     } else if (strcmp(text, "取消") == 0) {
         // 取消，关闭对话框
@@ -601,18 +612,18 @@ static int wifi_enable(const char *ifname)
     
     sock = socket(AF_INET, SOCK_DGRAM, 0);
     if (sock < 0) {
-        printf("[WiFi] Failed to create socket: %d\n", errno);
+        WATCH_DBG_LOG("[WiFi] Failed to create socket: %d", errno);
         return -1;
     }
     
     ret = wapi_set_ifup(sock, ifname);
     if (ret < 0) {
-        printf("[WiFi] Failed to bring up %s: %d\n", ifname, ret);
+        WATCH_DBG_LOG("[WiFi] Failed to bring up %s: %d", ifname, ret);
         close(sock);
         return -1;
     }
     
-    printf("[WiFi] %s enabled successfully\n", ifname);
+    WATCH_DBG_LOG("[WiFi] %s enabled successfully", ifname);
     close(sock);
     return 0;
 }
@@ -625,18 +636,18 @@ static int wifi_disable(const char *ifname)
     
     sock = socket(AF_INET, SOCK_DGRAM, 0);
     if (sock < 0) {
-        printf("[WiFi] Failed to create socket: %d\n", errno);
+        WATCH_DBG_LOG("[WiFi] Failed to create socket: %d", errno);
         return -1;
     }
     
     ret = wapi_set_ifdown(sock, ifname);
     if (ret < 0) {
-        printf("[WiFi] Failed to bring down %s: %d\n", ifname, ret);
+        WATCH_DBG_LOG("[WiFi] Failed to bring down %s: %d", ifname, ret);
         close(sock);
         return -1;
     }
     
-    printf("[WiFi] %s disabled successfully\n", ifname);
+    WATCH_DBG_LOG("[WiFi] %s disabled successfully", ifname);
     close(sock);
     return 0;
 }
@@ -650,11 +661,11 @@ static void *wifi_scan_thread(void *arg)
     struct wapi_list_s aps;
     struct wapi_scan_info_s *scan_info;
     
-    printf("[WiFi] Scan thread started\n");
+    WATCH_DBG_LOG("[WiFi] Scan thread started");
     
     sock = socket(AF_INET, SOCK_DGRAM, 0);
     if (sock < 0) {
-        printf("[WiFi] Failed to create socket: %d\n", errno);
+        WATCH_DBG_LOG("[WiFi] Failed to create socket: %d", errno);
         g_wifi_scan_data.scanning = false;
         return NULL;
     }
@@ -662,7 +673,7 @@ static void *wifi_scan_thread(void *arg)
     /* 初始化扫描 */
     ret = wapi_scan_init(sock, ifname, NULL);
     if (ret < 0) {
-        printf("[WiFi] Failed to init scan: %d\n", ret);
+        WATCH_DBG_LOG("[WiFi] Failed to init scan: %d", ret);
         close(sock);
         g_wifi_scan_data.scanning = false;
         return NULL;
@@ -675,7 +686,7 @@ static void *wifi_scan_thread(void *arg)
     memset(&aps, 0, sizeof(aps));
     ret = wapi_scan_coll(sock, ifname, &aps);
     if (ret < 0) {
-        printf("[WiFi] Failed to collect scan results: %d\n", ret);
+        WATCH_DBG_LOG("[WiFi] Failed to collect scan results: %d", ret);
         close(sock);
         g_wifi_scan_data.scanning = false;
         return NULL;
@@ -715,7 +726,7 @@ static void *wifi_scan_thread(void *arg)
     
     sort_wifi_by_signal_strength();
     
-    printf("[WiFi] Scan completed, found %d networks\n", g_wifi_scan_data.count);
+    WATCH_DBG_LOG("[WiFi] Scan completed, found %d networks", g_wifi_scan_data.count);
     
     /* 释放扫描结果 */
     wapi_scan_coll_free(&aps);
@@ -733,7 +744,7 @@ static int wifi_start_scan(void)
     
     pthread_t tid;
     if (pthread_create(&tid, NULL, wifi_scan_thread, NULL) != 0) {
-        printf("[WiFi] Failed to create scan thread\n");
+        WATCH_DBG_LOG("[WiFi] Failed to create scan thread");
         g_wifi_scan_data.scanning = false;
         return -1;
     }
@@ -745,10 +756,10 @@ static int wifi_start_scan(void)
 /* 刷新按钮回调 */
 static void wifi_refresh_btn_cb(lv_event_t *e)
 {
-    printf("[WiFi] Refresh button clicked, starting scan...\n");
+    WATCH_DBG_LOG("[WiFi] Refresh button clicked, starting scan...");
     
     if (g_wifi_scan_data.scanning) {
-        printf("[WiFi] Already scanning, please wait\n");
+        WATCH_DBG_LOG("[WiFi] Already scanning, please wait");
         return;
     }
     
@@ -762,14 +773,14 @@ static void wifi_refresh_btn_cb(lv_event_t *e)
 /* WiFi自动重连线程 */
 static void *wifi_reconnect_thread(void *arg)
 {
-    printf("[WiFi] Reconnect thread started\n");
+    WATCH_DBG_LOG("[WiFi] Reconnect thread started");
     
     // 等待WiFi完全启用
     sleep(3);
     
     // 找到最后一个连接的WiFi（列表中的第一个）
     if (g_saved_wifi_count == 0) {
-        printf("[WiFi] No saved WiFi for auto-reconnect\n");
+        WATCH_DBG_LOG("[WiFi] No saved WiFi for auto-reconnect");
         g_is_reconnecting = false;
         return NULL;
     }
@@ -777,13 +788,13 @@ static void *wifi_reconnect_thread(void *arg)
     const char *ssid = g_saved_wifi_list[0].ssid;
     const char *password = g_saved_wifi_list[0].password;
     
-    printf("[WiFi] Auto-reconnecting to: %s\n", ssid);
+    WATCH_DBG_LOG("[WiFi] Auto-reconnecting to: %s", ssid);
     
     // 尝试连接保存的WiFi
     wifi_connect("wlan0", ssid, password);
     
     // 等待连接建立（增加等待时间）
-    printf("[WiFi] Waiting for connection to establish...\n");
+    WATCH_DBG_LOG("[WiFi] Waiting for connection to establish...");
     sleep(5);
     
     // 验证连接状态
@@ -798,19 +809,19 @@ static void *wifi_reconnect_thread(void *arg)
                 strlen(current_essid) > 0) {
                 break;
             }
-            printf("[WiFi] ESSID not ready, retrying... (%d)\n", retries);
+            WATCH_DBG_LOG("[WiFi] ESSID not ready, retrying... (%d)", retries);
             sleep(1);
             retries--;
         }
         
-        printf("[WiFi] Current ESSID: %s (expected: %s)\n", current_essid, ssid);
+        WATCH_DBG_LOG("[WiFi] Current ESSID: %s (expected: %s)", current_essid, ssid);
         
         if (strlen(current_essid) > 0 &&
             strcmp(current_essid, ssid) == 0) {
             // 连接成功
             strncpy(g_connected_ssid, ssid, sizeof(g_connected_ssid) - 1);
             g_connected_ssid[sizeof(g_connected_ssid) - 1] = '\0';
-            printf("[WiFi] Auto-reconnect success: %s\n", g_connected_ssid);
+            WATCH_DBG_LOG("[WiFi] Auto-reconnect success: %s", g_connected_ssid);
             /* home_control_reset_server removed */
         } else {
             // 连接失败，再检查IP地址
@@ -819,10 +830,10 @@ static void *wifi_reconnect_thread(void *arg)
                 // 有IP地址也算成功
                 strncpy(g_connected_ssid, ssid, sizeof(g_connected_ssid) - 1);
                 g_connected_ssid[sizeof(g_connected_ssid) - 1] = '\0';
-                printf("[WiFi] Auto-reconnect success (has IP): %s\n", g_connected_ssid);
+                WATCH_DBG_LOG("[WiFi] Auto-reconnect success (has IP): %s", g_connected_ssid);
     /* home_control_reset_server removed: no home_control dependency */
             } else {
-                printf("[WiFi] Auto-reconnect failed\n");
+                WATCH_DBG_LOG("[WiFi] Auto-reconnect failed");
                 g_connected_ssid[0] = '\0';
             }
         }
@@ -830,7 +841,7 @@ static void *wifi_reconnect_thread(void *arg)
     }
     
     g_is_reconnecting = false;
-    printf("[WiFi] Reconnect thread finished, connected_ssid=%s\n", 
+    WATCH_DBG_LOG("[WiFi] Reconnect thread finished, connected_ssid=%s", 
            strlen(g_connected_ssid) > 0 ? g_connected_ssid : "none");
     
     return NULL;
@@ -839,24 +850,24 @@ static void *wifi_reconnect_thread(void *arg)
 /* WiFi自动重连检查 */
 static void wifi_auto_reconnect_check(void)
 {
-    printf("[WiFi] Checking auto-reconnect, saved_count=%d, connected_ssid=%s\n",
+    WATCH_DBG_LOG("[WiFi] Checking auto-reconnect, saved_count=%d, connected_ssid=%s",
            g_saved_wifi_count,
            strlen(g_connected_ssid) > 0 ? g_connected_ssid : "none");
     
     // 如果没有保存的WiFi信息，直接返回
     if (g_saved_wifi_count == 0) {
-        printf("[WiFi] No saved WiFi for auto-reconnect\n");
+        WATCH_DBG_LOG("[WiFi] No saved WiFi for auto-reconnect");
         return;
     }
     
     // 如果已经在连接或正在重连，直接返回
     if (strlen(g_connected_ssid) > 0) {
-        printf("[WiFi] Already connected to: %s\n", g_connected_ssid);
+        WATCH_DBG_LOG("[WiFi] Already connected to: %s", g_connected_ssid);
         return;
     }
     
     if (g_is_reconnecting) {
-        printf("[WiFi] Already reconnecting\n");
+        WATCH_DBG_LOG("[WiFi] Already reconnecting");
         return;
     }
     
@@ -865,7 +876,7 @@ static void wifi_auto_reconnect_check(void)
     // 在单独线程中执行重连
     pthread_t tid;
     if (pthread_create(&tid, NULL, wifi_reconnect_thread, NULL) != 0) {
-        printf("[WiFi] Failed to create reconnect thread\n");
+        WATCH_DBG_LOG("[WiFi] Failed to create reconnect thread");
         g_is_reconnecting = false;
         return;
     }
@@ -878,25 +889,25 @@ static void wifi_list_item_click_cb(lv_event_t *e)
     lv_obj_t *item = lv_event_get_target(e);
     const char *ssid = (const char *)lv_obj_get_user_data(item);
     
-    printf("[WiFi] Clicked on: %s\n", ssid);
+    WATCH_DBG_LOG("[WiFi] Clicked on: %s", ssid);
     
     // 如果点击的是保存过的WiFi
     const char *saved_pwd = wifi_get_saved_password(ssid);
     if (saved_pwd != NULL) {
-        printf("[WiFi] %s is a saved WiFi\n", ssid);
+        WATCH_DBG_LOG("[WiFi] %s is a saved WiFi", ssid);
         
         // 设置重连标志，防止自动重连干扰
         g_is_reconnecting = true;
         
         // 如果当前有连接，先断开
         if (strlen(g_connected_ssid) > 0 && strcmp(g_connected_ssid, ssid) != 0) {
-            printf("[WiFi] Disconnecting current WiFi: %s\n", g_connected_ssid);
+            WATCH_DBG_LOG("[WiFi] Disconnecting current WiFi: %s", g_connected_ssid);
             wifi_disconnect("wlan0");
             sleep(1);
         }
         
         // 连接新的WiFi
-        printf("[WiFi] Connecting to: %s\n", ssid);
+        WATCH_DBG_LOG("[WiFi] Connecting to: %s", ssid);
         wifi_connect("wlan0", ssid, saved_pwd);
         
         // 等待连接建立
@@ -914,13 +925,13 @@ static void wifi_list_item_click_cb(lv_event_t *e)
                 strlen(current_essid) > 0 &&
                 strcmp(current_essid, ssid) == 0) {
                 connect_success = true;
-                printf("[WiFi] Connection verified by ESSID: %s\n", current_essid);
+                WATCH_DBG_LOG("[WiFi] Connection verified by ESSID: %s", current_essid);
             } else {
                 // 再检查IP地址
                 struct in_addr ip_addr;
                 if (wapi_get_ip(sock, "wlan0", &ip_addr) == 0 && ip_addr.s_addr != 0) {
                     connect_success = true;
-                    printf("[WiFi] Connection verified by IP: %s\n", inet_ntoa(ip_addr));
+                    WATCH_DBG_LOG("[WiFi] Connection verified by IP: %s", inet_ntoa(ip_addr));
                 }
             }
             close(sock);
@@ -934,13 +945,13 @@ static void wifi_list_item_click_cb(lv_event_t *e)
             // 记录连接时间
             g_connect_time = time(NULL);
             
-            printf("[WiFi] Connected to: %s\n", g_connected_ssid);
+            WATCH_DBG_LOG("[WiFi] Connected to: %s", g_connected_ssid);
             
             // 重置智能家居服务器信息
             /* home_control_reset_server removed */
         } else {
             // 连接失败，保留WiFi信息但从当前扫描结果中移除
-            printf("[WiFi] Connection failed, keeping saved WiFi: %s\n", ssid);
+            WATCH_DBG_LOG("[WiFi] Connection failed, keeping saved WiFi: %s", ssid);
             
             // 从扫描结果中移除（下次扫描会重新添加）
             for (int i = 0; i < g_wifi_scan_data.count; i++) {
@@ -951,7 +962,7 @@ static void wifi_list_item_click_cb(lv_event_t *e)
                                sizeof(wifi_scan_result_t));
                     }
                     g_wifi_scan_data.count--;
-                    printf("[WiFi] Removed from current scan results: %s\n", ssid);
+                    WATCH_DBG_LOG("[WiFi] Removed from current scan results: %s", ssid);
                     break;
                 }
             }
@@ -974,11 +985,11 @@ static void wifi_list_item_click_cb(lv_event_t *e)
 static void wifi_update_list_ui(lv_obj_t *list_cont)
 {
     if (!list_cont) {
-        printf("[WiFi] list_cont is NULL, cannot update UI\n");
+        WATCH_DBG_LOG("[WiFi] list_cont is NULL, cannot update UI");
         return;
     }
     
-    printf("[WiFi] Updating UI, connected_ssid=%s, scan_count=%d, scanning=%d\n", 
+    WATCH_DBG_LOG("[WiFi] Updating UI, connected_ssid=%s, scan_count=%d, scanning=%d", 
            g_connected_ssid, g_wifi_scan_data.count, g_wifi_scan_data.scanning);
     
     // 清空列表容器
@@ -986,7 +997,7 @@ static void wifi_update_list_ui(lv_obj_t *list_cont)
     
     // 如果有已连接的 WiFi，在顶部显示
     if (strlen(g_connected_ssid) > 0) {
-        printf("[WiFi] Adding connected WiFi to list: %s\n", g_connected_ssid);
+        WATCH_DBG_LOG("[WiFi] Adding connected WiFi to list: %s", g_connected_ssid);
         
         lv_obj_t *connected_item = lv_obj_create(list_cont);
         lv_obj_set_size(connected_item, LV_PCT(100), 50);
@@ -1035,7 +1046,7 @@ static void wifi_update_list_ui(lv_obj_t *list_cont)
         lv_obj_set_style_text_color(info_label, lv_color_white(), 0);
         lv_obj_align(info_label, LV_ALIGN_CENTER, 0, 0);
     } else {
-        printf("[WiFi] No connected WiFi to display\n");
+        WATCH_DBG_LOG("[WiFi] No connected WiFi to display");
     }
     
     // 添加"可用网络"标题和刷新按钮
@@ -1083,10 +1094,10 @@ static void wifi_update_list_ui(lv_obj_t *list_cont)
         return;
     }
     
-    printf("[WiFi] Updating UI with %d networks\n", g_wifi_scan_data.count);
+    WATCH_DBG_LOG("[WiFi] Updating UI with %d networks", g_wifi_scan_data.count);
     
     // 添加真实扫描结果
-    printf("[WiFi] Adding scan results to list\n");
+    WATCH_DBG_LOG("[WiFi] Adding scan results to list");
     
     // 先添加保存的WiFi到"可用网络"列表最前面
     for (int s = 0; s < g_saved_wifi_count; s++) {
@@ -1113,7 +1124,7 @@ static void wifi_update_list_ui(lv_obj_t *list_cont)
             continue;
         }
         
-        printf("[WiFi] Adding saved WiFi at top of available: %s\n", saved_ssid);
+        WATCH_DBG_LOG("[WiFi] Adding saved WiFi at top of available: %s", saved_ssid);
         
         lv_obj_t *list_item = lv_obj_create(list_cont);
         lv_obj_set_size(list_item, LV_PCT(100), 50);
@@ -1149,13 +1160,13 @@ static void wifi_update_list_ui(lv_obj_t *list_cont)
         // 跳过已连接的 WiFi（避免重复显示）
         if (strlen(g_connected_ssid) > 0 && 
             strcmp(g_wifi_scan_data.results[i].ssid, g_connected_ssid) == 0) {
-            printf("[WiFi] Skipping connected: %s\n", g_wifi_scan_data.results[i].ssid);
+            WATCH_DBG_LOG("[WiFi] Skipping connected: %s", g_wifi_scan_data.results[i].ssid);
             continue;
         }
         
         // 跳过已保存的WiFi（已经单独添加了）
         if (wifi_find_saved(g_wifi_scan_data.results[i].ssid) >= 0) {
-            printf("[WiFi] Skipping saved (already added): %s\n", g_wifi_scan_data.results[i].ssid);
+            WATCH_DBG_LOG("[WiFi] Skipping saved (already added): %s", g_wifi_scan_data.results[i].ssid);
             continue;
         }
         
@@ -1192,7 +1203,7 @@ static int wifi_disconnect(const char *ifname)
 {
     char command[256];
     
-    printf("[WiFi] Disconnecting from %s\n", ifname);
+    WATCH_DBG_LOG("[WiFi] Disconnecting from %s", ifname);
     
     // 断开ESSID
     snprintf(command, sizeof(command), "wapi essid %s \"\" 0", ifname);
@@ -1202,7 +1213,7 @@ static int wifi_disconnect(const char *ifname)
     snprintf(command, sizeof(command), "ifdown %s", ifname);
     system(command);
     
-    printf("[WiFi] Disconnected\n");
+    WATCH_DBG_LOG("[WiFi] Disconnected");
     return 0;
 }
 
@@ -1257,7 +1268,7 @@ static void wifi_detail_slide_handler(lv_event_t *e)
 /* WiFi详情页面 - 断开连接回调 */
 static void wifi_detail_disconnect_cb(lv_event_t *e)
 {
-    printf("[WiFi] Disconnecting...\n");
+    WATCH_DBG_LOG("[WiFi] Disconnecting...");
     
     // 断开WiFi连接
     wifi_disconnect("wlan0");
@@ -1279,14 +1290,14 @@ static void wifi_detail_disconnect_cb(lv_event_t *e)
         wifi_update_list_ui(g_list_cont);
     }
     
-    printf("[WiFi] Disconnected, saved_count=%d, timer=%p\n", 
+    WATCH_DBG_LOG("[WiFi] Disconnected, saved_count=%d, timer=%p", 
            g_saved_wifi_count, g_update_timer);
 }
 
 /* WiFi详情页面 - 忘记网络回调 */
 static void wifi_detail_forget_cb(lv_event_t *e)
 {
-    printf("[WiFi] Forgetting network...\n");
+    WATCH_DBG_LOG("[WiFi] Forgetting network...");
     
     // 断开WiFi连接
     wifi_disconnect("wlan0");
@@ -1318,7 +1329,7 @@ static void wifi_detail_forget_cb(lv_event_t *e)
 static void wifi_show_detail_page(lv_event_t *e)
 {
     (void)e;
-    printf("[WiFi] Showing detail page\n");
+    WATCH_DBG_LOG("[WiFi] Showing detail page");
     
     // 创建详情页面容器
     lv_obj_t *detail_page = lv_obj_create(lv_scr_act());
@@ -1472,7 +1483,7 @@ static void wifi_status_check_timer_cb(lv_timer_t *timer)
     uint8_t if_flags = 0;
     int ret = netlib_getifstatus("wlan0", &if_flags);
     
-    // printf("[WiFi] Interface status: ret=%d, flags=0x%02x, running=%d\n", 
+    // WATCH_DBG_LOG("[WiFi] Interface status: ret=%d, flags=0x%02x, running=%d", 
     //        ret, if_flags, IFF_IS_RUNNING(if_flags));
     
     if (ret == 0 && IFF_IS_RUNNING(if_flags)) {
@@ -1480,11 +1491,11 @@ static void wifi_status_check_timer_cb(lv_timer_t *timer)
         g_status_fail_count = 0;
     } else {
         g_status_fail_count++;
-        printf("[WiFi] Interface not running (%d)\n", g_status_fail_count);
+        WATCH_DBG_LOG("[WiFi] Interface not running (%d)", g_status_fail_count);
         
         // 连续失败3次才认为断开
         if (g_status_fail_count >= 3) {
-            printf("[WiFi] Connection lost after %d failures: %s\n", g_status_fail_count, g_connected_ssid);
+            WATCH_DBG_LOG("[WiFi] Connection lost after %d failures: %s", g_status_fail_count, g_connected_ssid);
             
             // 清除连接状态（保留保存的WiFi信息）
             g_connected_ssid[0] = '\0';
@@ -1504,7 +1515,7 @@ static void wifi_status_check_timer_cb(lv_timer_t *timer)
 
 static void wifi_scan_timer_cb(lv_timer_t *timer)
 {
-    printf("[WiFi] Timer callback, scanning=%d, reconnecting=%d\n", 
+    WATCH_DBG_LOG("[WiFi] Timer callback, scanning=%d, reconnecting=%d", 
            g_wifi_scan_data.scanning, g_is_reconnecting);
     
     // 每次都更新 UI（显示"扫描中..."或扫描结果）
@@ -1512,13 +1523,13 @@ static void wifi_scan_timer_cb(lv_timer_t *timer)
     
     // 如果扫描完成且不在重连中，停止定时器
     if (!g_wifi_scan_data.scanning && !g_is_reconnecting) {
-        printf("[WiFi] Scan completed, stopping timer\n");
+        WATCH_DBG_LOG("[WiFi] Scan completed, stopping timer");
         if (g_update_timer) {
             lv_timer_del(g_update_timer);
             g_update_timer = NULL;
         }
     } else if (!g_wifi_scan_data.scanning && g_is_reconnecting) {
-        printf("[WiFi] Scan done, waiting for reconnect...\n");
+        WATCH_DBG_LOG("[WiFi] Scan done, waiting for reconnect...");
     }
 }
 
@@ -1533,11 +1544,11 @@ static void wifi_switch_event_handler(lv_event_t * e)
         if(list_cont) {
             if(is_on) {
                 // 启用 WiFi
-                printf("[WiFi] Enabling WiFi...\n");
+                WATCH_DBG_LOG("[WiFi] Enabling WiFi...");
                 g_wifi_enabled = true;  // 保存开关状态
                 if (wifi_enable("wlan0") == 0) {
                     // 启动扫描
-                    printf("[WiFi] Starting scan...\n");
+                    WATCH_DBG_LOG("[WiFi] Starting scan...");
                     wifi_start_scan();
                     
                     // 保存列表容器指针
@@ -1562,13 +1573,13 @@ static void wifi_switch_event_handler(lv_event_t * e)
                 lv_obj_clear_flag(list_cont, LV_OBJ_FLAG_HIDDEN);
             } else {
                 // 禁用 WiFi
-                printf("[WiFi] Disabling WiFi...\n");
+                WATCH_DBG_LOG("[WiFi] Disabling WiFi...");
                 g_wifi_enabled = false;  // 保存开关状态
                 wifi_disable("wlan0");
                 
                 // 清除已连接的 WiFi 状态（但保留保存的WiFi信息用于重连）
                 g_connected_ssid[0] = '\0';
-                printf("[WiFi] Cleared connected WiFi state (saved: %d)\n", 
+                WATCH_DBG_LOG("[WiFi] Cleared connected WiFi state (saved: %d)", 
                        g_saved_wifi_count);
                 
                 // 重置智能家居服务器信息
@@ -1703,7 +1714,7 @@ static void settings_wifi_create(lv_obj_t *parent)
     
     // 如果 WiFi 已启用，启动扫描并更新列表
     if (g_wifi_enabled) {
-        printf("[WiFi] WiFi already enabled, starting scan...\n");
+        WATCH_DBG_LOG("[WiFi] WiFi already enabled, starting scan...");
         wifi_start_scan();
         g_list_cont = list_cont;
         if (g_update_timer) {

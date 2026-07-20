@@ -30,8 +30,12 @@
 
 #define ARRAY_SIZE(ARRAY) (sizeof(ARRAY) / sizeof(ARRAY[0]))
 
-/* 调试开关 */
+/* 调试开关：menuconfig 打开 CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG 后生效 */
+#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
 #define RESOURCE_DEBUG 1
+#else
+#define RESOURCE_DEBUG 0
+#endif
 
 #if RESOURCE_DEBUG
 #define RES_LOG(fmt, ...) printf("[RESOURCE] " fmt "\n", ##__VA_ARGS__)
@@ -159,21 +163,21 @@ void watch_resource_init(void)
             if (font) {                                                                               \
                 g_font_resource_map[font_index].key = #NAME "_" #SIZE;                                \
                 g_font_resource_map[font_index].font = font;                                          \
-                printf("[RESOURCE] loaded font: %s_%d\n", #NAME, SIZE);                              \
+                RES_LOG("loaded font: %s_%d", #NAME, SIZE);                              \
                 font_index++;                                                                         \
             } else {                                                                                  \
-                printf("[RESOURCE] font_%s_%d create failed\n", #NAME, SIZE);                         \
+                RES_LOG("font_%s_%d create failed", #NAME, SIZE);                         \
             }                                                                                         \
         }                                                                                             \
     } while (0);
 #include "font/font.inc"
 #undef FONT_DEF
-    printf("[RESOURCE] created %d fonts\n", font_index);
+    RES_LOG("created %d fonts", font_index);
 
     /* 设置第一个成功创建的字体为全局默认字体，确保中文可显示 */
     if (font_index > 0 && g_font_resource_map[0].font != NULL) {
         lv_obj_set_style_text_font(lv_scr_act(), g_font_resource_map[0].font, 0);
-        printf("[RESOURCE] set default font to: %s\n", g_font_resource_map[0].key);
+        RES_LOG("set default font to: %s", g_font_resource_map[0].key);
     }
 }
 

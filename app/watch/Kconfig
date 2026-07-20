@@ -10,3 +10,12 @@ config EXAMPLES_CONTEST2026_WATCH_BOOT
                 - iSoftStone logo display at power-on (1 second)
                 - Power-on animation (42 frames at 10fps, ~4.2 seconds)
                 - Uses embedded C array image resources (no filesystem)
+
+config EXAMPLES_CONTEST2026_WATCH_DEBUG
+        bool "Contest 2026 - Watch debug logs"
+        depends on EXAMPLES_CONTEST2026_WATCH_BOOT
+        default n
+        ---help---
+                Enable debug printf output (WATCH_DBG_LOG) from the watch
+                app and related board code.  Keep disabled in production:
+                console output blocks when no USB serial host is attached.

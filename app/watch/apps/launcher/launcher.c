@@ -32,6 +32,15 @@
 #include "../boot/boot_animation.h"
 #include "../common/watch_pages.h"
 
+/* 调试打印开关：menuconfig 打开 CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG 后生效。
+ * 默认关闭：无 USB 主机时控制台 FIFO 写满会阻塞系统。
+ */
+#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
+#  define WATCH_DBG_LOG(fmt, ...) printf(fmt "\n", ##__VA_ARGS__)
+#else
+#  define WATCH_DBG_LOG(fmt, ...)
+#endif
+
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
@@ -112,7 +121,7 @@ static void goto_next_state(void)
         current_obj = new_obj;
         if (current_obj == NULL)
           {
-            printf("[LAUNCHER] ERROR: Failed to init expression page\n");
+            WATCH_DBG_LOG("[LAUNCHER] ERROR: Failed to init expression page");
             current_state = STATE_DONE;
           }
         lv_task_handler();
