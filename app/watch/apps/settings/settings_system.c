@@ -13,6 +13,17 @@
 #include "../common/watch_pages.h"
 #include "../../resource/resource.h"
 
+#include <nuttx/config.h>
+
+/* 调试打印开关：menuconfig 打开 CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG 后生效。
+ * 默认关闭：无 USB 主机时控制台 FIFO 写满会阻塞系统。
+ */
+#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
+#  define WATCH_DBG_LOG(fmt, ...) printf(fmt "\n", ##__VA_ARGS__)
+#else
+#  define WATCH_DBG_LOG(fmt, ...)
+#endif
+
 static lv_obj_t *system_base  = NULL;
 static lv_obj_t *poweroff_btn = NULL;
 static lv_obj_t *reboot_btn   = NULL;
@@ -24,7 +35,7 @@ static void poweroff_cb(lv_event_t *e)
   lv_event_code_t code = lv_event_get_code(e);
   if (code == LV_EVENT_CLICKED)
     {
-      printf("[Settings] Power off system\n");
+      WATCH_DBG_LOG("[Settings] Power off system");
       axp2101_power_off();
     }
 }
@@ -34,7 +45,7 @@ static void reboot_cb(lv_event_t *e)
   lv_event_code_t code = lv_event_get_code(e);
   if (code == LV_EVENT_CLICKED)
     {
-      printf("[Settings] Reboot system\n");
+      WATCH_DBG_LOG("[Settings] Reboot system");
       axp2101_power_reset();
     }
 }

@@ -31,6 +31,15 @@
 #include "../../resource/resource.h"
 #include "../common/watch_pages.h"
 
+/* 调试打印开关：menuconfig 打开 CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG 后生效。
+ * 默认关闭：无 USB 主机时控制台 FIFO 写满会阻塞系统。
+ */
+#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
+#  define WATCH_DBG_LOG(fmt, ...) printf(fmt "\n", ##__VA_ARGS__)
+#else
+#  define WATCH_DBG_LOG(fmt, ...)
+#endif
+
 /****************************************************************************
  * Private Data
  ****************************************************************************/
@@ -54,7 +63,7 @@ static void gif_ready_cb(lv_event_t *e)
   s_anim_finished = true;
 
   /* GIF解码器已自动暂停定时器，此处只需记录状态 */
-  fprintf(stderr, "[BOOT] GIF animation finished\n");
+  WATCH_DBG_LOG("[BOOT] GIF animation finished");
 }
 
 /****************************************************************************
@@ -91,7 +100,7 @@ lv_obj_t *boot_animation_init(lv_obj_t *parent)
   if (gif_src) {
     lv_gif_set_src(s_gif_obj, gif_src);
   } else {
-    fprintf(stderr, "[BOOT] boot_animation_init: bootlogo gif data is NULL\n");
+    WATCH_DBG_LOG("[BOOT] boot_animation_init: bootlogo gif data is NULL");
   }
 
   /* 重置状态 */

@@ -267,6 +267,17 @@ action_build_nuttx() {
     # 导致 CONFIG_EXAMPLES_CONTEST2026_WATCH_BOOT 只在 defconfig 里写了但进不了 .config）
     ensure_app_symlinks
 
+    # 防踩坑：defconfig 比 .config 新，说明配置改过但未生效。
+    # 此时增量编译会混用不同配置编出的目标文件（可能链接失败或固件无法启动），
+    # 必须 distclean 后重新配置并全量编译。
+    local defconfig="${TEAM_DIR}/board/esp32s3-touch-amoled/configs/openvela/defconfig"
+    if [ -f "${NUTTX_DIR}/.config" ] && [ -f "${defconfig}" ] \
+        && [ "${defconfig}" -nt "${NUTTX_DIR}/.config" ]; then
+        log_warn "检测到 defconfig 比 .config 新，配置可能已修改"
+        log_warn "为避免增量编译混用不同配置的目标文件，先执行 distclean 全量重编..."
+        action_distclean
+    fi
+
     # 首次配置（.config 不存在时）
     if [ ! -f "${NUTTX_DIR}/.config" ]; then
         log_warn "NuttX 配置不存在，执行首次配置..."

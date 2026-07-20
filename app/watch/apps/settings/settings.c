@@ -11,6 +11,17 @@
 #include "../common/watch_pages.h"
 #include "../../resource/resource.h"
 
+#include <nuttx/config.h>
+
+/* 调试打印开关：menuconfig 打开 CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG 后生效。
+ * 默认关闭：无 USB 主机时控制台 FIFO 写满会阻塞系统。
+ */
+#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
+#  define WATCH_DBG_LOG(fmt, ...) printf(fmt "\n", ##__VA_ARGS__)
+#else
+#  define WATCH_DBG_LOG(fmt, ...)
+#endif
+
 static lv_obj_t *settings_base = NULL;
 static lv_obj_t *wifi_btn      = NULL;
 static lv_obj_t *about_btn     = NULL;
@@ -27,7 +38,7 @@ static void slide_gesture_handler(lv_event_t *e);
 void settings_app_click_callback(lv_event_t *e)
 {
   (void)e;
-  printf("[Settings] app clicked\n");
+  WATCH_DBG_LOG("[Settings] app clicked");
   settings_app_create();
 }
 
