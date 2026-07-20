@@ -30,6 +30,7 @@
 
 /* 包含launcher模块（开机logo + 开机动画） */
 #include "apps/launcher/launcher.h"
+#include "apps/settings/settings_wifi.h"
 #include "resource/resource.h"
 
 /****************************************************************************
@@ -84,6 +85,9 @@ int main(int argc, FAR char *argv[])
 
     /* 初始化资源管理（加载开机logo和动画帧数据） */
     watch_resource_init();
+
+    /* WiFi开机自动初始化：在开机动画期间完成WiFi连接 */
+    settings_wifi_auto_init();
 
     /* 启动开机logo → 开机动画流程 */
     //printf("[MAIN] Calling launcher_init...\n");
