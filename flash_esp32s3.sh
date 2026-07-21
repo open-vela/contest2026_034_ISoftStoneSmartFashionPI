@@ -43,6 +43,25 @@ else
     echo "       如果编译失败请检查 prebuilts 是否已同步"
 fi
 
+# 构建工具 PATH（kconfig-tweak、genromfs 等）
+BUILD_TOOLS_DIR="${PROJECT_ROOT}/prebuilts/build-tools/linux-x86_64/bin"
+if [ -d "${BUILD_TOOLS_DIR}" ]; then
+    case ":${PATH}:" in
+        *":${BUILD_TOOLS_DIR}:"*) : ;;
+        *) export PATH="${BUILD_TOOLS_DIR}:${PATH}" ;;
+    esac
+fi
+
+# Kconfig Python 前端 PATH（menuconfig/kconfiglib，支持 osource 语法）
+PYTHON_TOOLS_DIR="${PROJECT_ROOT}/prebuilts/tools/python/bin"
+if [ -d "${PYTHON_TOOLS_DIR}" ]; then
+    case ":${PATH}:" in
+        *":${PYTHON_TOOLS_DIR}:"*) : ;;
+        *) export PATH="${PYTHON_TOOLS_DIR}:${PATH}" ;;
+    esac
+fi
+export PYTHONPATH="${PROJECT_ROOT}/prebuilts/tools/python/dist-packages/kconfiglib:${PROJECT_ROOT}/prebuilts/tools/python/dist-packages${PYTHONPATH:+:$PYTHONPATH}"
+
 # 确认关键工具可用
 if ! command -v xtensa-esp32s3-elf-gcc >/dev/null 2>&1; then
     echo "[ERROR] xtensa-esp32s3-elf-gcc 不在 PATH 中"
