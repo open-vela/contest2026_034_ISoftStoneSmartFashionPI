@@ -15,11 +15,12 @@ MAINSRC = watch_main.c
 # #include "apps/launcher/launcher.h" and #include "resource/resource.h" work
 CFLAGS += -I.
 
-# Apps source files (boot + launcher + common + settings)
+# Apps source files (boot + launcher + common + settings + home_control)
 CSRCS += $(shell find ./apps/boot -name "*.c")
 CSRCS += $(shell find ./apps/launcher -name "*.c")
 CSRCS += $(shell find ./apps/common -name "*.c")
 CSRCS += $(shell find ./apps/settings -name "*.c")
+CSRCS += $(shell find ./apps/home_control -name "*.c")
 
 # Resource manager
 CSRCS += resource/resource.c
