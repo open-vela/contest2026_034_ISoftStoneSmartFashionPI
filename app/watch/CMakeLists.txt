@@ -12,6 +12,7 @@ if(CONFIG_EXAMPLES_CONTEST2026_WATCH_BOOT)
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/common/*.c
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/settings/*.c
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/home_control/*.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/apps/volume_control/*.c
   )
 
   # Resource files (image data)

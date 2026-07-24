@@ -25,11 +25,25 @@
 #include <nuttx/config.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <malloc.h>
 #include <string.h>
 #include <unistd.h>
+#include <stdbool.h>
+#include <syslog.h>
+#include <fcntl.h>
+#include <sys/mount.h>
+#include <sys/stat.h>
+#include <pthread.h>
+#include <sys/ioctl.h>
+#include <mqueue.h>
+
+#include <nuttx/power/axp2101.h>
 
 #include "watch_pages.h"
+
 #include "../settings/settings.h"
+#include "../home_control/home_control.h"
+#include "../volume_control/volume_control.h"
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -308,6 +322,37 @@ int lv_watch_pop_page(lv_obj_t *page)
   return 0;
 }
 
+/* ── 表情页面显示/隐藏 ────────────────────────────────────────────── */
+
+void watch_expression_page_hide(void)
+{
+  if (s_page_root)
+    {
+      lv_obj_add_flag(s_page_root, LV_OBJ_FLAG_HIDDEN);
+    }
+  if (s_switch_timer)
+    {
+      lv_timer_pause(s_switch_timer);
+    }
+  PAGE_LOG("Expression page hidden");
+}
+
+void watch_expression_page_show(void)
+{
+  if (s_page_root)
+    {
+      lv_obj_clear_flag(s_page_root, LV_OBJ_FLAG_HIDDEN);
+    }
+  if (s_switch_timer)
+    {
+      lv_timer_resume(s_switch_timer);
+    }
+  /* 切到下一张使其立即有动画效果 */
+  switch_to_expression(s_curr_index + 1);
+  PAGE_LOG("Expression page shown");
+}
+
+
 /* ── set_face 集成 ──────────────────────────────────────────────── */
 
 /* face_id → GIF索引映射表（与 ai_agent set_face 白名单对齐） */
@@ -422,4 +467,108 @@ int watch_expression_page_set_face(const char* face_id, int duration_ms)
     lv_async_call(set_face_async_cb, (void*)(intptr_t)gif_index);
 
     return 0;
+}
+
+/* ── 电池电量监控 ──────────────────────────────────────────────── */
+
+/* 低电量告警阈值（百分比） */
+#define WATCH_BATTERY_LOW_THRESHOLD   20
+
+/* 电量周期检测间隔（毫秒） */
+#define WATCH_BATTERY_CHECK_INTERVAL_MS  60000  /* 60秒检测一次 */
+
+/* 电量监控定时器 */
+static lv_timer_t *s_battery_timer = NULL;
+
+/* 低电量告警去重标志：仅在「正常→低电量」跳变时输出一次告警 */
+static bool s_battery_low_warned = false;
+
+/**
+ * @brief 获取当前电池电量百分比
+ *
+ *  封装 AXP2101 驱动的 axp2101_get_pmu_soc()，向应用层提供
+ *  统一的电量查询接口。
+ *
+ * @return uint8_t 电池电量百分比（0-100），读取异常返回0
+ */
+uint8_t watch_battery_get_level(void)
+{
+  return axp2101_get_pmu_soc();
+}
+
+/**
+ * @brief 检测电池电量并在低电量时通过 syslog 输出告警
+ *
+ *  当电量低于 WATCH_BATTERY_LOW_THRESHOLD（默认20%）时，通过
+ *  syslog(LOG_WARNING) 输出当前电量值及「电量过低」警告信息。
+ *  为避免日志刷屏，仅在状态由正常跳变为低电量时输出一次告警；
+ *  电量恢复后会重置标志，下次再次低于阈值时重新告警。
+ *
+ * @return bool 电量过低返回 true，否则返回 false
+ */
+bool watch_battery_check_low_warning(void)
+{
+  uint8_t soc = watch_battery_get_level();
+
+  if (soc < WATCH_BATTERY_LOW_THRESHOLD)
+    {
+      if (!s_battery_low_warned)
+        {
+          syslog(LOG_WARNING,
+                 "[BATTERY] 电量过低: 当前电量 %u%%, 请及时充电",
+                 (unsigned int)soc);
+          s_battery_low_warned = true;
+        }
+      return true;
+    }
+  else
+    {
+      /* 电量已恢复，重置告警标志，便于下次低电量时再次告警 */
+      s_battery_low_warned = false;
+      return false;
+    }
+}
+
+/**
+ * @brief 电量监控定时器回调
+ */
+static void battery_timer_cb(lv_timer_t *timer)
+{
+  (void)timer;
+  watch_battery_check_low_warning();
+}
+
+/**
+ * @brief 启动电池电量周期监控
+ *
+ *  在 LVGL 事件循环中创建定时器，按
+ *  WATCH_BATTERY_CHECK_INTERVAL_MS（默认60秒）间隔周期性检测
+ *  电池电量。启动时立即执行一次检测。重复调用安全：已存在
+ *  定时器时直接返回，避免重复创建。
+ */
+void watch_battery_check_start(void)
+{
+  if (s_battery_timer != NULL)
+    {
+      return;
+    }
+
+  /* 启动时立即检测一次电量 */
+  watch_battery_check_low_warning();
+
+  s_battery_timer = lv_timer_create(battery_timer_cb,
+                                     WATCH_BATTERY_CHECK_INTERVAL_MS,
+                                     NULL);
+}
+
+/**
+ * @brief 停止电池电量周期监控
+ */
+void watch_battery_check_stop(void)
+{
+  if (s_battery_timer != NULL)
+    {
+      lv_timer_del(s_battery_timer);
+      s_battery_timer = NULL;
+    }
 }
