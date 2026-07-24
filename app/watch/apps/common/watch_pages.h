@@ -27,6 +27,7 @@
 
 #include <nuttx/config.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include <lvgl/lvgl.h>
 
 #include "../../resource/resource.h"
@@ -134,5 +135,52 @@ int lv_watch_pop_page(lv_obj_t *page);
  * @return 0 成功，-1 失败（未初始化或face_id无效）
  */
 int watch_expression_page_set_face(const char* face_id, int duration_ms);
+
+/****************************************************************************
+ * 表情页面显示/隐藏控制
+ *
+ *  进入表情轮播页面后调用 hide() 隐藏页面显示，后台监听唤醒词。
+ *  检测到唤醒词后调用 show() 重新显示表情轮播。
+ ****************************************************************************/
+
+void watch_expression_page_hide(void);
+void watch_expression_page_show(void);
+
+/****************************************************************************
+ * 电池电量监控接口
+ ****************************************************************************/
+
+/**
+ * @brief 获取当前电池电量百分比
+ *
+ *  封装 AXP2101 PMU 驱动，向应用层提供统一的电量查询接口。
+ *
+ * @return uint8_t 电池电量百分比（0-100），读取异常返回0
+ */
+uint8_t watch_battery_get_level(void);
+
+/**
+ * @brief 检测电池电量并在低电量时通过 syslog 输出告警
+ *
+ *  当电量低于 20% 时，通过 syslog(LOG_WARNING) 输出当前电量值
+ *  及「电量过低」警告信息。为避免日志刷屏，仅在状态由正常跳
+ *  变为低电量时输出一次告警；电量恢复后重置标志。
+ *
+ * @return bool 电量过低返回 true，否则返回 false
+ */
+bool watch_battery_check_low_warning(void);
+
+/**
+ * @brief 启动电池电量周期监控
+ *
+ *  在 LVGL 事件循环中创建定时器，周期性（默认60秒）检测电池
+ *  电量。启动时立即执行一次检测。重复调用安全。
+ */
+void watch_battery_check_start(void);
+
+/**
+ * @brief 停止电池电量周期监控
+ */
+void watch_battery_check_stop(void);
 
 #endif /* WATCH_PAGES_H */
