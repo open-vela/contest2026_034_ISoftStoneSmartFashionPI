@@ -23,6 +23,7 @@
  ****************************************************************************/
 
 #include <nuttx/config.h>
+#include <sched.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -49,6 +50,10 @@
 #define ANIMATION_DISPLAY_TIME 9000   /* 开机动画最长显示时间(ms)，超时强制切换 */
 #define ANIM_CHECK_PERIOD_MS   100    /* 动画播放完成检测周期(ms) */
 
+/* ai_agent 自启动参数（与 packages/ai_agent Makefile 配置对齐） */
+#define AGENT_TASK_PRIORITY    100
+#define AGENT_TASK_STACKSIZE   32768
+
 /****************************************************************************
  * Private Data
  ****************************************************************************/
@@ -73,6 +78,36 @@ static uint32_t anim_wait_ms = 0;               /* 动画已等待时间(ms) */
 
 static void state_timer_cb(lv_timer_t *timer);
 static void anim_check_timer_cb(lv_timer_t *timer);
+
+/**
+ * @brief 后台拉起 ai_agent 任务（auto 模式：无 CLI，网络就绪后自动开启关键字唤醒）
+ *
+ * FLAT build 下 watch 与 ai_agent 同镜像，直接链接 ai_agent_main。
+ * task_create 非阻塞，不影响 LVGL 主线程。
+ */
+static void agent_autostart(void)
+{
+  static bool started = false;   /* 防重入 */
+  extern int ai_agent_main(int argc, char *argv[]);
+
+  if (started)
+    {
+      return;
+    }
+  started = true;
+
+  static char *agent_argv[] = { "auto", NULL };
+  int pid = task_create("ai_agent", AGENT_TASK_PRIORITY,
+                        AGENT_TASK_STACKSIZE, ai_agent_main, agent_argv);
+  if (pid < 0)
+    {
+      WATCH_DBG_LOG("[LAUNCHER] ERROR: ai_agent task_create failed: %d", pid);
+    }
+  else
+    {
+      WATCH_DBG_LOG("[LAUNCHER] ai_agent started (pid=%d, auto mode)", pid);
+    }
+}
 
 /**
  * @brief 切换到下一个状态
@@ -125,6 +160,9 @@ static void goto_next_state(void)
             current_state = STATE_DONE;
           }
         lv_task_handler();
+
+        /* 表情页已显示：后台拉起 ai_agent，自动进入关键字唤醒监听 */
+        agent_autostart();
         break;
 
       case STATE_SHOW_EXPRESSION:
