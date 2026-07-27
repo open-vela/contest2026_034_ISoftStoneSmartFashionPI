@@ -40,8 +40,6 @@
 #include <nuttx/power/axp2101.h>
 
 #include "watch_pages.h"
-
-#include "../settings/settings.h"
 #include "../home_control/home_control.h"
 #include "../volume_control/volume_control.h"
 
@@ -192,11 +190,6 @@ lv_obj_t *watch_expression_page_init(lv_obj_t *parent)
   /* 创建GIF控件 */
   s_expr_gif = lv_gif_create(s_page_root);
   lv_obj_center(s_expr_gif);
-
-  /* 允许点击GIF进入设置主页 */
-  lv_obj_add_flag(s_expr_gif, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_add_event_cb(s_expr_gif, settings_app_click_callback,
-                      LV_EVENT_CLICKED, NULL);
 
   /* 设置GIF控件背景透明。
    * 首次加载时不做淡入动画——直接显示第一帧，

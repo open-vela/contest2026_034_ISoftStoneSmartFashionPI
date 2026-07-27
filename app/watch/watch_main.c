@@ -31,6 +31,7 @@
 /* 包含launcher模块（开机logo + 开机动画） */
 #include "apps/launcher/launcher.h"
 #include "apps/settings/settings_wifi.h"
+#include "apps/boot/watch_button.h"
 #include "resource/resource.h"
 
 /****************************************************************************
@@ -88,6 +89,9 @@ int main(int argc, FAR char *argv[])
 
     /* WiFi开机自动初始化：在开机动画期间完成WiFi连接 */
     settings_wifi_auto_init();
+
+    /* 启动物理按键监控（BOOT长按进入设置，PWR短按返回主页） */
+    watch_button_monitor_init();
 
     /* 启动开机logo → 开机动画流程 */
     //printf("[MAIN] Calling launcher_init...\n");

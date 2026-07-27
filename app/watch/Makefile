@@ -15,6 +15,13 @@ MAINSRC = watch_main.c
 # #include "apps/launcher/launcher.h" and #include "resource/resource.h" work
 CFLAGS += -I.
 
+# Add architecture include path for ESP32S3 GPIO access
+CFLAGS += -I$(TOPDIR)/arch/xtensa/src/esp32s3
+
+# ai_agent headers for voice channel integration
+CFLAGS += -I$(APPDIR)/packages/ai_agent/include
+CFLAGS += -I$(APPDIR)/packages/ai_agent/src
+
 # Apps source files (boot + launcher + common + settings + home_control + volume_control)
 CSRCS += $(shell find ./apps/boot -name "*.c")
 CSRCS += $(shell find ./apps/launcher -name "*.c")

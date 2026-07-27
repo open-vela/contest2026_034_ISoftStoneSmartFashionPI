@@ -39,7 +39,39 @@ void settings_app_click_callback(lv_event_t *e)
 {
   (void)e;
   WATCH_DBG_LOG("[Settings] app clicked");
+  settings_app_open();
+}
+
+/* 打开设置界面（如果未打开） */
+void settings_app_open(void)
+{
+  if (settings_base != NULL)
+    {
+      WATCH_DBG_LOG("[Settings] already open, ignoring");
+      return;
+    }
   settings_app_create();
+}
+
+/* 关闭设置界面（如果已打开） */
+void settings_app_close(void)
+{
+  if (settings_base == NULL)
+    {
+      WATCH_DBG_LOG("[Settings] not open, ignoring");
+      return;
+    }
+
+  lv_watch_pop_page(settings_base);
+  lv_obj_del(settings_base);
+  settings_base = NULL;
+  WATCH_DBG_LOG("[Settings] closed");
+}
+
+/* 检查设置界面是否已打开 */
+bool settings_is_open(void)
+{
+  return (settings_base != NULL);
 }
 
 static void settings_app_create(void)

@@ -29,6 +29,11 @@ void settings_wifi_event_cb(lv_event_t *e);
 void settings_about_event_cb(lv_event_t *e);
 void settings_system_event_cb(lv_event_t *e);
 
+/* 设置界面控制接口（供按键监控模块调用） */
+void settings_app_open(void);
+void settings_app_close(void);
+bool settings_is_open(void);
+
 #ifdef __cplusplus
 }
 #endif
