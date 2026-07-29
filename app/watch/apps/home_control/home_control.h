@@ -22,7 +22,7 @@ extern "C" {
 #define HC_DEVICE_FRESH_AIR       3   /* 新风 */
 #define HC_DEVICE_LIVING_AMBIENT  4   /* 客厅氛围灯 */
 #define HC_DEVICE_LIVING_LIGHT    5   /* 客厅灯 */
-#define HC_DEVICE_TV_BG_LIGHT     6   /* 电视背景灯 */
+#define HC_DEVICE_KITCHEN_LIGHT   6   /* 厨房灯 */
 #define HC_DEVICE_ENTRANCE_LIGHT  7   /* 玄关灯 */
 #define HC_DEVICE_BEDROOM_LIGHT   8   /* 卧室灯 */
 #define HC_DEVICE_BEDROOM_BG      9   /* 卧室背景灯 */
