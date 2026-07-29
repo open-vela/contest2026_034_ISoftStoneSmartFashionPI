@@ -90,7 +90,7 @@ static void hc_init_devices(void)
   s_hc_devices[3]  = (hc_device_t){"新风",       false, false};
   s_hc_devices[4]  = (hc_device_t){"客厅氛围灯", false, false};
   s_hc_devices[5]  = (hc_device_t){"客厅灯",     false, false};
-  s_hc_devices[6]  = (hc_device_t){"电视背景灯", false, false};
+  s_hc_devices[6]  = (hc_device_t){"厨房灯", false, false};
   s_hc_devices[7]  = (hc_device_t){"玄关灯",     false, false};
   s_hc_devices[8]  = (hc_device_t){"卧室灯",     false, false};
   s_hc_devices[9]  = (hc_device_t){"卧室背景灯", false, false};
