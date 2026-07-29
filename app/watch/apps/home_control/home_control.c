@@ -34,7 +34,11 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define HC_TAG "[HomeControl] "
+#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
+#define HC_LOG(fmt, ...)  printf("[HomeControl] " fmt "\n", ##__VA_ARGS__)
+#else
+#define HC_LOG(fmt, ...)
+#endif
 
 #define HC_DISCOVERY_PORT     9999
 #define HC_DISCOVERY_MAGIC    "DISCOVER_REQ"
@@ -104,7 +108,7 @@ static void hc_init_devices(void)
  */
 static void hc_discover_server(void)
 {
-  printf(HC_TAG "Discovering server via UDP broadcast...\n");
+  HC_LOG("Discovering server via UDP broadcast...");
 
   memset(s_hc_server_ip, 0, sizeof(s_hc_server_ip));
   s_hc_server_port = 0;
@@ -113,7 +117,7 @@ static void hc_discover_server(void)
   int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
   if (sockfd < 0)
     {
-      printf(HC_TAG "Failed to create socket\n");
+      HC_LOG("Failed to create socket");
       return;
     }
 
@@ -122,7 +126,7 @@ static void hc_discover_server(void)
   if (netlib_get_ipv4addr("wlan0", &local_ip) == 0 &&
       local_ip.s_addr != 0)
     {
-      printf(HC_TAG "Local wlan0 IP: %s\n", inet_ntoa(local_ip));
+      HC_LOG("Local wlan0 IP: %s", inet_ntoa(local_ip));
 
       struct sockaddr_in local_addr;
       memset(&local_addr, 0, sizeof(local_addr));
@@ -133,12 +137,12 @@ static void hc_discover_server(void)
       if (bind(sockfd, (struct sockaddr *)&local_addr,
                sizeof(local_addr)) < 0)
         {
-          printf(HC_TAG "Failed to bind to wlan0 interface\n");
+          HC_LOG("Failed to bind to wlan0 interface");
         }
     }
   else
     {
-      printf(HC_TAG "Failed to get wlan0 IP address\n");
+      HC_LOG("Failed to get wlan0 IP address");
     }
 
   /* 设置广播选项 */
@@ -159,7 +163,7 @@ static void hc_discover_server(void)
                    sizeof(broadcast_addr));
   if (ret < 0)
     {
-      printf(HC_TAG "Broadcast send failed\n");
+      HC_LOG("Broadcast send failed");
       close(sockfd);
       return;
     }
@@ -176,7 +180,7 @@ static void hc_discover_server(void)
   ret = select(sockfd + 1, &readfds, NULL, NULL, &timeout);
   if (ret <= 0)
     {
-      printf(HC_TAG "Discovery timeout or error\n");
+      HC_LOG("Discovery timeout or error");
       close(sockfd);
       return;
     }
@@ -190,7 +194,7 @@ static void hc_discover_server(void)
                  (struct sockaddr *)&server_addr, &server_len);
   if (ret < 0)
     {
-      printf(HC_TAG "Receive response failed\n");
+      HC_LOG("Receive response failed");
       close(sockfd);
       return;
     }
@@ -214,14 +218,14 @@ static void hc_discover_server(void)
           s_hc_server_port      = atoi(port_start);
           s_hc_server_discovered = true;
 
-          printf(HC_TAG "Server discovered: %s:%d\n",
+          HC_LOG("Server discovered: %s:%d",
                  s_hc_server_ip, s_hc_server_port);
           close(sockfd);
           return;
         }
     }
 
-  printf(HC_TAG "Invalid response format\n");
+  HC_LOG("Invalid response format");
   close(sockfd);
 }
 
@@ -235,14 +239,14 @@ static int hc_send_command(int cmd)
 {
   if (!s_hc_server_discovered)
     {
-      printf(HC_TAG "Server not discovered, cannot send command\n");
+      HC_LOG("Server not discovered, cannot send command");
       return -1;
     }
 
   int sock = socket(AF_INET, SOCK_STREAM, 0);
   if (sock < 0)
     {
-      printf(HC_TAG "Failed to create socket\n");
+      HC_LOG("Failed to create socket");
       return -1;
     }
 
@@ -255,7 +259,7 @@ static int hc_send_command(int cmd)
   if (connect(sock, (struct sockaddr *)&server_addr,
               sizeof(server_addr)) < 0)
     {
-      printf(HC_TAG "Failed to connect to %s:%d\n",
+      HC_LOG("Failed to connect to %s:%d",
              s_hc_server_ip, s_hc_server_port);
       close(sock);
       return -1;
@@ -268,11 +272,11 @@ static int hc_send_command(int cmd)
 
   if (ret < 0)
     {
-      printf(HC_TAG "Failed to send command %d\n", cmd);
+      HC_LOG("Failed to send command %d", cmd);
     }
   else
     {
-      printf(HC_TAG "Sent command %d to %s:%d\n",
+      HC_LOG("Sent command %d to %s:%d",
              cmd, s_hc_server_ip, s_hc_server_port);
     }
 
@@ -304,7 +308,7 @@ void watch_home_control_reset_server(void)
   memset(s_hc_server_ip, 0, sizeof(s_hc_server_ip));
   s_hc_server_port      = 0;
   s_hc_server_discovered = false;
-  printf(HC_TAG "Server info reset\n");
+  HC_LOG("Server info reset");
 }
 
 int watch_home_control_get_device_count(void)
@@ -336,7 +340,7 @@ int watch_home_control_toggle_device(int index, bool turn_on)
 {
   if (index < 0 || index >= HC_DEVICE_COUNT)
     {
-      printf(HC_TAG "Invalid device index %d\n", index);
+      HC_LOG("Invalid device index %d", index);
       return -1;
     }
 
@@ -345,26 +349,26 @@ int watch_home_control_toggle_device(int index, bool turn_on)
   /* WiFi 前置检查 */
   if (!settings_wifi_is_connected())
     {
-      printf(HC_TAG "WiFi not connected, please connect WiFi first\n");
+      HC_LOG("WiFi not connected, please connect WiFi first");
       return -2;
     }
 
   /* 服务器发现（首次或重置后） */
   if (!s_hc_server_discovered)
     {
-      printf(HC_TAG "Server not discovered, discovering...\n");
+      HC_LOG("Server not discovered, discovering...");
       hc_discover_server();
     }
 
   if (!s_hc_server_discovered)
     {
-      printf(HC_TAG "Server discovery failed\n");
+      HC_LOG("Server discovery failed");
       return -3;
     }
 
   /* 计算命令编号并发送 */
   int cmd = hc_calc_command(index, turn_on);
-  printf(HC_TAG "Sending command %d for device %s (%s)\n",
+  HC_LOG("Sending command %d for device %s (%s)",
          cmd, s_hc_devices[index].name, turn_on ? "ON" : "OFF");
 
   int ret = hc_send_command(cmd);
@@ -375,7 +379,7 @@ int watch_home_control_toggle_device(int index, bool turn_on)
 
   /* 更新设备状态 */
   s_hc_devices[index].status = turn_on;
-  printf(HC_TAG "Device %s set to %s\n",
+  HC_LOG("Device %s set to %s",
          s_hc_devices[index].name, turn_on ? "ON" : "OFF");
 
   return 0;

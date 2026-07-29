@@ -40,6 +40,12 @@
 /* Short press duration in milliseconds (100ms) */
 #define SHORT_PRESS_DURATION_MS 100
 
+#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
+#define BTN_LOG(fmt, ...)  printf("[BTN] " fmt "\n", ##__VA_ARGS__)
+#else
+#define BTN_LOG(fmt, ...)
+#endif
+
 /* Polling interval in milliseconds */
 #define POLL_INTERVAL_MS        10
 
@@ -214,19 +220,19 @@ static enum button_state_e button_update(struct button_context_s *ctx)
 
 static void handle_boot_long_press(void)
 {
-  printf("[BTN] BOOT long press detected\n");
+  BTN_LOG("BOOT long press detected");
 
   if (settings_is_open())
     {
       settings_app_close();
       g_settings_active = false;
-      printf("[BTN] Settings closed\n");
+      BTN_LOG("Settings closed");
     }
   else
     {
       settings_app_open();
       g_settings_active = true;
-      printf("[BTN] Settings opened\n");
+      BTN_LOG("Settings opened");
     }
 }
 
@@ -239,14 +245,14 @@ static void handle_boot_long_press(void)
 
 static void handle_pwr_short_press(void)
 {
-  printf("[BTN] PWR short press detected\n");
+  BTN_LOG("PWR short press detected");
 
   /* 如果设置界面打开，先关闭设置 */
   if (g_settings_active && settings_is_open())
     {
       settings_app_close();
       g_settings_active = false;
-      printf("[BTN] Settings closed by PWR press\n");
+      BTN_LOG("Settings closed by PWR press");
       return;
     }
 
@@ -305,7 +311,7 @@ static void button_monitor_timer_cb(lv_timer_t *timer)
 
 void watch_button_monitor_init(void)
 {
-  printf("[BTN] Initializing button monitor...\n");
+  BTN_LOG("Initializing button monitor...");
 
   /* Initialize buttons */
   button_ctx_init(&g_boot_button, BUTTON_TYPE_BOOT, BOOT_BUTTON_GPIO, true);
@@ -315,10 +321,10 @@ void watch_button_monitor_init(void)
   g_button_timer = lv_timer_create(button_monitor_timer_cb, POLL_INTERVAL_MS, NULL);
   if (g_button_timer == NULL)
     {
-      printf("[BTN] ERROR: Failed to create button monitor timer\n");
+      BTN_LOG("ERROR: Failed to create button monitor timer");
       return;
     }
 
-  printf("[BTN] Button monitor started (BOOT=GPIO%d, PWR=GPIO%d)\n",
-         BOOT_BUTTON_GPIO, PWR_BUTTON_GPIO);
+  BTN_LOG("Button monitor started (BOOT=GPIO%d, PWR=GPIO%d)",
+          BOOT_BUTTON_GPIO, PWR_BUTTON_GPIO);
 }
