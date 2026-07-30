@@ -32,7 +32,6 @@
 #include "../boot/boot_logo.h"
 #include "../boot/boot_animation.h"
 #include "../common/watch_pages.h"
-#include "voice/voice_channel.h"
 
 /* 调试打印开关：menuconfig 打开 CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG 后生效。
  * 默认关闭：无 USB 主机时控制台 FIFO 写满会阻塞系统。
@@ -79,27 +78,6 @@ static uint32_t anim_wait_ms = 0;               /* 动画已等待时间(ms) */
 
 static void state_timer_cb(lv_timer_t *timer);
 static void anim_check_timer_cb(lv_timer_t *timer);
-
-/**
- * @brief LVGL 线程中执行的显示表情页函数
- */
-static void show_expression_async(void *arg)
-{
-  (void)arg;
-  watch_expression_page_show();
-  WATCH_DBG_LOG("[LAUNCHER] Wake word detected! Expression shown.");
-}
-
-/**
- * @brief 唤醒词检测成功回调（由 voice_channel conversation_thread 调用）
- *
- * 不能直接调用 LVGL 函数——LVGL 非线程安全。
- * 必须通过 lv_async_call 延迟到 LVGL 主线程执行。
- */
-static void on_wake_detected(void)
-{
-  lv_async_call(show_expression_async, NULL);
-}
 
 /**
  * @brief 后台拉起 ai_agent 任务（auto 模式：无 CLI，网络就绪后自动开启关键字唤醒）
@@ -165,9 +143,6 @@ static void goto_next_state(void)
          * 到动画结束时 ai_agent 大概率已就绪 */
         agent_autostart();
 
-        /* 注册唤醒回调：唤醒成功后显示表情页 */
-        voice_channel_set_wake_notify(on_wake_detected);
-
         /* 周期性检测动画是否播完，播完立即切换（最长等待 ANIMATION_DISPLAY_TIME） */
         anim_wait_ms = 0;
         lv_timer_create(anim_check_timer_cb, ANIM_CHECK_PERIOD_MS, NULL);
@@ -189,8 +164,8 @@ static void goto_next_state(void)
             current_state = STATE_DONE;
           }
 
-        /* 隐藏表情页，等待唤醒词检测成功后再显示 */
-        watch_expression_page_hide();
+        /* 停止轮播，固定显示 excited */
+        watch_expression_page_set_default();
 
         lv_task_handler();
         break;

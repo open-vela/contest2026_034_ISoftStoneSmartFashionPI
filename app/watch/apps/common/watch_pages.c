@@ -64,7 +64,6 @@
 /* 表情页面运行时状态 */
 static lv_obj_t   *s_page_root    = NULL;  /* 页面根容器 */
 static lv_obj_t   *s_expr_gif     = NULL;  /* 表情GIF控件 */
-static lv_timer_t *s_switch_timer = NULL;  /* 自动轮播定时器 */
 static int         s_curr_index   = 0;     /* 当前表情索引 */
 static int         s_expr_count   = 0;     /* 表情图片总数 */
 
@@ -149,15 +148,6 @@ static void switch_to_expression(int index)
   lv_anim_start(&fade_anim);
 }
 
-/**
- * @brief 自动轮播定时器回调函数
- */
-static void switch_timer_cb(lv_timer_t *timer)
-{
-  (void)timer;
-  switch_to_expression(s_curr_index + 1);
-}
-
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
@@ -223,23 +213,11 @@ lv_obj_t *watch_expression_page_init(lv_obj_t *parent)
         }
     }
 
-  /* 启动自动轮播定时器（每10秒切换） */
-  s_switch_timer = lv_timer_create(switch_timer_cb,
-                                    WATCH_EXPRESSION_SWITCH_INTERVAL_MS,
-                                    NULL);
-
   return s_page_root;
 }
 
 void watch_expression_page_deinit(lv_obj_t *page_obj)
 {
-  /* 停止并删除自动轮播定时器 */
-  if (s_switch_timer != NULL)
-    {
-      lv_timer_del(s_switch_timer);
-      s_switch_timer = NULL;
-    }
-
   /* 重置状态 */
   s_expr_gif   = NULL;
   s_curr_index = 0;
@@ -252,21 +230,6 @@ void watch_expression_page_deinit(lv_obj_t *page_obj)
     }
 
   s_page_root = NULL;
-}
-
-void watch_expression_page_next(void)
-{
-  if (s_switch_timer != NULL)
-    {
-      lv_timer_reset(s_switch_timer);
-    }
-
-  switch_to_expression(s_curr_index + 1);
-}
-
-int watch_expression_page_get_current_index(void)
-{
-  return s_curr_index;
 }
 
 int lv_watch_push_page(lv_obj_t *page)
@@ -315,36 +278,6 @@ int lv_watch_pop_page(lv_obj_t *page)
   return 0;
 }
 
-/* ── 表情页面显示/隐藏 ────────────────────────────────────────────── */
-
-void watch_expression_page_hide(void)
-{
-  if (s_page_root)
-    {
-      lv_obj_add_flag(s_page_root, LV_OBJ_FLAG_HIDDEN);
-    }
-  if (s_switch_timer)
-    {
-      lv_timer_pause(s_switch_timer);
-    }
-  PAGE_LOG("Expression page hidden");
-}
-
-void watch_expression_page_show(void)
-{
-  if (s_page_root)
-    {
-      lv_obj_clear_flag(s_page_root, LV_OBJ_FLAG_HIDDEN);
-    }
-  if (s_switch_timer)
-    {
-      lv_timer_resume(s_switch_timer);
-    }
-  /* 切到下一张使其立即有动画效果 */
-  switch_to_expression(s_curr_index + 1);
-  PAGE_LOG("Expression page shown");
-}
-
 
 /* ── set_face 集成 ──────────────────────────────────────────────── */
 
@@ -355,24 +288,25 @@ typedef struct {
 } face_map_t;
 
 static const face_map_t s_face_map[] = {
-    { "happy",      0  },   /* SMILE.GIF    */
-    { "neutral",    1  },   /* CALM.GIF     */
-    { "love",       2  },   /* CARING.GIF   */
-    { "peaceful",   3  },   /* COMFORT.GIF  */
-    { "confused",   4  },   /* CONFUSED.GIF */
-    { "excited",    5  },   /* ENERGY.GIF   */
-    { "sick",       6  },   /* ERROR.GIF    */
-    { "worried",    7  },   /* FALL.GIF     */
-    { "angry",      7  },   /* FALL.GIF     (closest match) */
-    { "surprised",  5  },   /* ENERGY.GIF   (closest match) */
-    { "cool",       10 },   /* MUTED.GIF    */
-    { "shy",        11 },   /* SHY.GIF      */
-    { "sleepy",     12 },   /* SLEEP.GIF    */
-    { "sad",        1  },   /* CALM.GIF     (closest match) */
-    { "proud",      15 },   /* SUCCESS.GIF  */
-    { "thinking",   16 },   /* THINKING.GIF */
-    { "laugh",      0  },   /* SMILE.GIF    (closest match) */
-    { "dizzy",      9  },   /* LISTEN.GIF   (closest match) */
+    { "happy",      0  },   /* SMILE.GIF         */
+    { "neutral",    1  },   /* CALM.GIF          */
+    { "love",       2  },   /* CARING.GIF        */
+    { "peaceful",   3  },   /* COMFORT.GIF       */
+    { "confused",   4  },   /* CONFUSED.GIF      */
+    { "excited",    5  },   /* ENERGY_PULSE.GIF  */
+    { "sick",       6  },   /* ERROR_1.GIF       */
+    { "worried",    7  },   /* FALL.GIF          */
+    { "heartbeat",  8  },   /* HEART_BREATHING   */
+    { "listening",  9  },   /* LISTENING.GIF     */
+    { "cool",       10 },   /* MUTED.GIF         */
+    { "shy",        11 },   /* SHY.GIF           */
+    { "sleepy",     12 },   /* SLEEP.GIF         */
+    { "sleeping",   13 },   /* SLEEP_BREATHING   */
+    { "speaking",   14 },   /* SPEAKING.GIF      */
+    { "standby",    15 },   /* STANDBY_1.GIF     */
+    { "proud",      16 },   /* SUCCESS_1.GIF     */
+    { "thinking",   17 },   /* THINKING_1.GIF    */
+    { "waiting",    18 },   /* WAITING.GIF       */
 };
 #define FACE_MAP_SIZE (sizeof(s_face_map) / sizeof(s_face_map[0]))
 
@@ -389,11 +323,6 @@ static void set_face_async_cb(void *user_data)
 {
     int gif_index = (int)(intptr_t)user_data;
     if (s_expr_gif == NULL || s_expr_count <= 0) return;
-
-    /* 暂停自动轮播 */
-    if (s_switch_timer != NULL) {
-        lv_timer_pause(s_switch_timer);
-    }
 
     /* 取消之前的恢复定时器 */
     if (s_restore_timer != NULL) {
@@ -415,19 +344,25 @@ static void set_face_async_cb(void *user_data)
     }
 }
 
-/* 恢复自动轮播的回调 */
+/* 恢复表情的回调（不恢复轮播——回到 excited） */
 static void restore_timer_cb(lv_timer_t *timer)
 {
     (void)timer;
     s_restore_timer = NULL;
 
-    /* 恢复自动轮播 */
-    if (s_switch_timer != NULL) {
-        lv_timer_resume(s_switch_timer);
+    /* 不恢复自动轮播——回到固定的 excited */
+    for (size_t i = 0; i < FACE_MAP_SIZE; i++) {
+        if (strcmp(s_face_map[i].face_id, "excited") == 0) {
+            switch_to_expression(s_face_map[i].gif_index);
+            break;
+        }
     }
+}
 
-    /* 切换到下一张，让表情继续流动 */
-    switch_to_expression(s_curr_index + 1);
+/* 设置默认表情（开机后显示 excited，不启动轮播） */
+void watch_expression_page_set_default(void)
+{
+    watch_expression_page_set_face("excited", 0);
 }
 
 int watch_expression_page_set_face(const char* face_id, int duration_ms)

@@ -19,12 +19,18 @@
 #include <nuttx/config.h>
 #include <stdio.h>
 #include <time.h>
+#include <unistd.h>
 
 #include <lvgl/lvgl.h>
+#include <nuttx/audio/es7210.h>
 #include "esp32s3_gpio.h"
 
 #include "watch_button.h"
 #include "../settings/settings.h"
+
+/* ── Watch expression / voice externs (flat build) ──────────── */
+extern int  watch_expression_page_set_face(const char* face_id, int duration_ms);
+extern void voice_channel_enable_wake_gate(void);
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -90,6 +96,7 @@ static struct button_context_s g_boot_button;
 static struct button_context_s g_pwr_button;
 static lv_timer_t *g_button_timer = NULL;
 static bool g_settings_active = false;  /* 跟踪设置界面是否打开 */
+static bool g_mic_muted = false;        /* 禁麦状态：false=开麦, true=禁麦 */
 
 /****************************************************************************
  * Private Functions
@@ -212,6 +219,30 @@ static enum button_state_e button_update(struct button_context_s *ctx)
 }
 
 /****************************************************************************
+ * Name: handle_boot_short_press
+ *
+ * Description:
+ *   BOOT短按处理：硬件静音/取消静音（不掉语音通道，不阻塞LVGL）
+ ****************************************************************************/
+
+static void handle_boot_short_press(void)
+{
+  printf("[BTN] BOOT short press detected\n");
+
+  g_mic_muted = !g_mic_muted;
+  if (g_mic_muted) {
+    es7210_set_mic_mute(true);   /* 硬件禁麦：ADC 输出静音 */
+    watch_expression_page_set_face("sleepy", 0);
+    printf("[BTN] Mic muted (HW) — face=sleepy\n");
+  } else {
+    es7210_set_mic_mute(false);  /* 硬件开麦 */
+    voice_channel_enable_wake_gate();  /* 重新要求唤醒词 */
+    /* face 由 voice_channel 状态机自动管理 (listening/thinking/speaking) */
+    printf("[BTN] Mic unmuted (HW) — wake gate enabled\n");
+  }
+}
+
+/****************************************************************************
  * Name: handle_boot_long_press
  *
  * Description:
@@ -285,6 +316,10 @@ static void button_monitor_timer_cb(lv_timer_t *timer)
       if (boot_state == BUTTON_STATE_LONG_PRESS)
         {
           handle_boot_long_press();
+        }
+      else if (boot_state == BUTTON_STATE_SHORT_PRESS)
+        {
+          handle_boot_short_press();
         }
       last_boot_state = boot_state;
     }
