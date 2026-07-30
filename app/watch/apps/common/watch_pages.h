@@ -52,9 +52,6 @@ extern "C" {
 #define WATCH_EXPRESSION_IMG_W  300
 #define WATCH_EXPRESSION_IMG_H  300
 
-/* 表情自动轮播间隔（毫秒） */
-#define WATCH_EXPRESSION_SWITCH_INTERVAL_MS  10000  /* 10秒切换一次 */
-
 /* 表情切换动画时长（毫秒） */
 #define WATCH_EXPRESSION_FADE_TIME_MS  300
 
@@ -73,11 +70,9 @@ extern "C" {
  ****************************************************************************/
 
 /**
- * @brief 初始化表情展示公共页面（从SD卡加载GIF）
+ * @brief 初始化表情展示公共页面
  *
- *  检测SD卡就绪后创建全屏背景和GIF控件，加载第一张表情GIF并
- *  启动自动轮播定时器（每 WATCH_EXPRESSION_SWITCH_INTERVAL_MS
- *  毫秒切换到下一张表情）。
+ *  创建全屏背景和GIF控件，加载第一张表情GIF。
  *
  * @param parent 父容器对象
  * @return lv_obj_t* 返回创建的页面根对象，失败返回 NULL
@@ -87,25 +82,11 @@ lv_obj_t *watch_expression_page_init(lv_obj_t *parent);
 /**
  * @brief 销毁表情展示公共页面
  *
- *  停止自动轮播定时器并释放页面相关资源。
+ *  释放页面相关资源。
  *
  * @param page_obj 页面根对象（由 watch_expression_page_init 返回）
  */
 void watch_expression_page_deinit(lv_obj_t *page_obj);
-
-/**
- * @brief 手动切换到下一张表情图片
- *
- *  立即切换到下一张表情，重置轮播定时器计时。
- */
-void watch_expression_page_next(void);
-
-/**
- * @brief 获取当前表情图片索引
- *
- * @return int 当前显示的表情索引（0-based）
- */
-int watch_expression_page_get_current_index(void);
 
 /**
  * @brief 将页面对象压入页面栈
@@ -126,26 +107,18 @@ int lv_watch_pop_page(lv_obj_t *page);
 /**
  * @brief 设置指定表情（供 ai_agent set_face tool 调用）
  *
- *  立即停止自动轮播，切换到 face_id 对应的 GIF。
- *  如果 duration_ms > 0，到时自动恢复轮播。
- *  如果 duration_ms == 0，永久保持该表情。
+ *  切换到 face_id 对应的 GIF。duration_ms>0 时到期恢复 excited。
  *
- * @param face_id     表情ID（happy/sad/neutral/.../sick，共18个）
+ * @param face_id  表情ID（19个枚举值之一）
  * @param duration_ms 显示时长（毫秒），0=永久
- * @return 0 成功，-1 失败（未初始化或face_id无效）
+ * @return 0 成功，-1 失败
  */
 int watch_expression_page_set_face(const char* face_id, int duration_ms);
 
-/****************************************************************************
- * 表情页面显示/隐藏控制
- *
- *  进入表情轮播页面后调用 hide() 隐藏页面显示，后台监听唤醒词。
- *  检测到唤醒词后调用 show() 重新显示表情轮播。
- ****************************************************************************/
-
-void watch_expression_page_hide(void);
-void watch_expression_page_show(void);
-
+/**
+ * @brief 开机后设置默认表情（excited）
+ */
+void watch_expression_page_set_default(void);
 /****************************************************************************
  * 电池电量监控接口
  ****************************************************************************/
