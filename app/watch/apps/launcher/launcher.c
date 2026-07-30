@@ -32,6 +32,8 @@
 #include "../boot/boot_logo.h"
 #include "../boot/boot_animation.h"
 #include "../common/watch_pages.h"
+#include "../settings/settings_wifi.h"
+#include "voice/voice_channel.h"
 
 /* 调试打印开关：menuconfig 打开 CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG 后生效。
  * 默认关闭：无 USB 主机时控制台 FIFO 写满会阻塞系统。
@@ -110,6 +112,35 @@ static void agent_autostart(void)
 }
 
 /**
+ * @brief 延迟唤醒启动定时器：等 WiFi + ai_agent 都就绪后再启动唤醒监听
+ */
+static void deferred_wake_start_timer_cb(lv_timer_t *timer)
+{
+    extern bool voice_channel_is_ready(void);
+    extern int voice_channel_start_wake(void);
+    static int attempts = 0;
+
+    bool wifi_ok = settings_wifi_is_connected();
+    bool voice_ok = voice_channel_is_ready();
+
+    WATCH_DBG_LOG("[LAUNCHER] wake start check #%d: wifi=%d voice=%d",
+                  ++attempts, wifi_ok, voice_ok);
+
+    if (wifi_ok && voice_ok) {
+        WATCH_DBG_LOG("[LAUNCHER] both ready, starting wake-word listening");
+        voice_channel_start_wake();
+        lv_timer_del(timer);  /* stop this timer */
+        return;
+    }
+
+    /* Safety: give up after 60 attempts (60 seconds) */
+    if (attempts >= 60) {
+        WATCH_DBG_LOG("[LAUNCHER] wake start timeout, giving up");
+        lv_timer_del(timer);
+    }
+}
+
+/**
  * @brief 切换到下一个状态
  */
 static void goto_next_state(void)
@@ -164,8 +195,11 @@ static void goto_next_state(void)
             current_state = STATE_DONE;
           }
 
-        /* 停止轮播，固定显示 excited */
-        watch_expression_page_set_default();
+        /* 隐藏表情页，等WiFi+ai_agent就绪后再启动唤醒词监听 */
+        watch_expression_page_hide();
+
+        /* 启动延迟唤醒定时器：周期性检测WiFi和ai_agent是否就绪 */
+        lv_timer_create(deferred_wake_start_timer_cb, 1000, NULL);
 
         lv_task_handler();
         break;
