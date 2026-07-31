@@ -195,9 +195,6 @@ static void goto_next_state(void)
             current_state = STATE_DONE;
           }
 
-        /* 隐藏表情页，等WiFi+ai_agent就绪后再启动唤醒词监听 */
-        watch_expression_page_hide();
-
         /* 启动延迟唤醒定时器：周期性检测WiFi和ai_agent是否就绪 */
         lv_timer_create(deferred_wake_start_timer_cb, 1000, NULL);
 
