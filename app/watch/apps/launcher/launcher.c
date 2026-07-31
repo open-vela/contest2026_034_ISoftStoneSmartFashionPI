@@ -133,9 +133,10 @@ static void deferred_wake_start_timer_cb(lv_timer_t *timer)
         return;
     }
 
-    /* Safety: give up after 60 attempts (60 seconds) */
-    if (attempts >= 60) {
-        WATCH_DBG_LOG("[LAUNCHER] wake start timeout, giving up");
+    /* Safety: give up after 180 attempts (180 seconds) */
+    if (attempts >= 180) {
+        WATCH_DBG_LOG("[LAUNCHER] wake start timeout, giving up (wifi=%d voice=%d)",
+                      wifi_ok, voice_ok);
         lv_timer_del(timer);
     }
 }
