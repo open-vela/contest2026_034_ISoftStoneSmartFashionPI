@@ -1,0 +1,52 @@
+/* Auto-generated from apps/vendor/watch/resource/power_jpg */
+/* Do not edit manually. */
+
+#ifndef __POWER_JPG_ASSETS_H__
+#define __POWER_JPG_ASSETS_H__
+
+#include "lvgl/lvgl.h"
+
+extern const lv_image_dsc_t power_jpg_power_frame_00_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_01_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_02_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_03_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_04_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_05_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_06_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_07_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_08_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_09_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_10_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_11_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_12_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_13_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_14_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_15_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_16_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_17_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_18_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_19_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_20_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_21_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_22_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_23_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_24_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_25_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_26_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_27_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_28_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_29_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_30_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_31_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_32_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_33_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_34_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_35_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_36_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_37_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_38_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_39_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_40_dsc;
+extern const lv_image_dsc_t power_jpg_power_frame_41_dsc;
+
+#endif /* __POWER_JPG_ASSETS_H__ */

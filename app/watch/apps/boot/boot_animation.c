@@ -62,7 +62,11 @@ static void gif_ready_cb(lv_event_t *e)
   (void)e;
   s_anim_finished = true;
 
-  /* GIF解码器已自动暂停定时器，此处只需记录状态 */
+  /* 立即暂停 GIF，防止解码器在定时器轮询前重新开始播放 */
+  if (s_gif_obj) {
+    lv_gif_pause(s_gif_obj);
+  }
+
   WATCH_DBG_LOG("[BOOT] GIF animation finished");
 }
 

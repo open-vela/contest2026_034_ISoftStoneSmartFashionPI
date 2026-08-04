@@ -438,6 +438,7 @@ static void create_keyboard_key(lv_obj_t *parent, const char *text, int x, int y
     lv_obj_t *key_label = lv_label_create(key_btn);
     lv_label_set_text(key_label, text);
     lv_obj_set_style_text_color(key_label, lv_color_white(), 0);
+    lv_obj_set_style_text_font(key_label, watch_resource_get_font("MiSans-Regular_20"), 0);
     lv_obj_align(key_label, LV_ALIGN_CENTER, 0, 0);
     
     lv_obj_add_event_cb(key_btn, keyboard_btn_event_cb, LV_EVENT_CLICKED, NULL);
@@ -679,6 +680,8 @@ static void create_password_dialog(const char *ssid)
     lv_obj_set_flex_align(dialog, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_all(dialog, 15, 0);
     lv_obj_clear_flag(dialog, LV_OBJ_FLAG_SCROLLABLE);
+    /* 设置中文字体，确保所有子标签继承 */
+    lv_obj_set_style_text_font(dialog, watch_resource_get_font("MiSans-Regular_20"), 0);
     
     // SSID 标题
     lv_obj_t *title = lv_label_create(dialog);
@@ -875,11 +878,16 @@ static void wifi_refresh_btn_cb(lv_event_t *e)
         return;
     }
 
-    /* 重置接口确保扫描可用 */
-    wifi_disable("wlan0");
-    usleep(300 * 1000);
-    wifi_enable("wlan0");
-    usleep(500 * 1000);
+    /* 仅在 WiFi 未连接时重置接口，避免断开已有连接 */
+    if (strlen(g_connected_ssid) == 0) {
+        syslog(LOG_INFO, "[WiFi] Refresh: resetting interface (not connected)");
+        wifi_disable("wlan0");
+        usleep(300 * 1000);
+        wifi_enable("wlan0");
+        usleep(500 * 1000);
+    } else {
+        syslog(LOG_INFO, "[WiFi] Refresh: scanning without reset (connected to '%s')", g_connected_ssid);
+    }
     
     wifi_start_scan();
     
@@ -1329,6 +1337,7 @@ static void wifi_update_list_ui(lv_obj_t *list_cont)
         lv_obj_set_flex_flow(connected_item, LV_FLEX_FLOW_ROW);
         lv_obj_set_flex_align(connected_item, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
         lv_obj_set_style_pad_column(connected_item, 8, 0);
+        lv_obj_set_style_text_font(connected_item, watch_resource_get_font("MiSans-Regular_20"), 0);
         
         // 使用蓝色圆形背景+白色对勾图标
         lv_obj_t *check_bg = lv_obj_create(connected_item);
@@ -1377,6 +1386,7 @@ static void wifi_update_list_ui(lv_obj_t *list_cont)
     lv_obj_clear_flag(title_cont, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_flex_flow(title_cont, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(title_cont, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_text_font(title_cont, watch_resource_get_font("MiSans-Regular_20"), 0);
     
     lv_obj_t *available_label = lv_label_create(title_cont);
     lv_label_set_text(available_label, "可用网络");
@@ -1456,6 +1466,7 @@ static void wifi_update_list_ui(lv_obj_t *list_cont)
         lv_obj_set_flex_flow(list_item, LV_FLEX_FLOW_ROW);
         lv_obj_set_flex_align(list_item, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
         lv_obj_set_style_pad_column(list_item, 8, 0);
+        lv_obj_set_style_text_font(list_item, watch_resource_get_font("MiSans-Regular_20"), 0);
         
         lv_obj_t *signal_img = lv_img_create(list_item);
         lv_img_set_src(signal_img, get_wifi_signal_icon(
@@ -1500,6 +1511,7 @@ static void wifi_update_list_ui(lv_obj_t *list_cont)
         lv_obj_set_flex_flow(list_item, LV_FLEX_FLOW_ROW);
         lv_obj_set_flex_align(list_item, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
         lv_obj_set_style_pad_column(list_item, 8, 0);
+        lv_obj_set_style_text_font(list_item, watch_resource_get_font("MiSans-Regular_20"), 0);
         
         lv_obj_t *signal_img = lv_img_create(list_item);
         lv_img_set_src(signal_img, get_wifi_signal_icon(
@@ -1658,6 +1670,8 @@ static void wifi_show_detail_page(lv_event_t *e)
     lv_obj_set_style_radius(detail_page, 0, 0);
     lv_obj_set_style_pad_all(detail_page, 0, 0);
     lv_obj_align(detail_page, LV_ALIGN_CENTER, 0, 0);
+    /* 设置中文字体 */
+    lv_obj_set_style_text_font(detail_page, watch_resource_get_font("MiSans-Regular_20"), 0);
     
     // 添加侧滑返回手势处理
     lv_obj_add_event_cb(detail_page, wifi_detail_slide_handler, LV_EVENT_ALL, NULL);
@@ -2041,14 +2055,19 @@ static void settings_wifi_create(lv_obj_t *parent)
             usleep(200 * 1000);  /* 给线程一点时间退出 */
         }
 
-        /* 重置WiFi驱动状态：重连线程可能在连接中间被取消（wapi essid已设置
-         * 但关联未完成），导致驱动处于脏状态，wapi_scan_init 返回 -1。
-         * 通过 ifdown→ifup 循环让驱动回到干净状态。 */
-        syslog(LOG_INFO, "[WiFi] Resetting WiFi interface for clean scan");
-        wifi_disable("wlan0");
-        usleep(300 * 1000);
-        wifi_enable("wlan0");
-        usleep(500 * 1000);
+        /* 仅在 WiFi 未连接时重置接口：
+         * 如果已连接（g_connected_ssid 非空），驱动处于干净状态，可直接扫描；
+         * 如果未连接，重连线程可能在连接中间被取消导致驱动脏状态，
+         * 需要 ifdown→ifup 循环让驱动回到干净状态。 */
+        if (strlen(g_connected_ssid) == 0) {
+            syslog(LOG_INFO, "[WiFi] Resetting WiFi interface for clean scan (not connected)");
+            wifi_disable("wlan0");
+            usleep(300 * 1000);
+            wifi_enable("wlan0");
+            usleep(500 * 1000);
+        } else {
+            syslog(LOG_INFO, "[WiFi] WiFi connected to '%s', scanning without reset", g_connected_ssid);
+        }
 
         WATCH_DBG_LOG("[WiFi] WiFi already enabled, starting scan...");
         wifi_start_scan();
