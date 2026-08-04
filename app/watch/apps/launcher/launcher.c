@@ -65,7 +65,7 @@ typedef enum
   STATE_INIT,            /* 初始状态 */
   STATE_SHOW_LOGO,       /* 显示logo状态 */
   STATE_SHOW_ANIM,       /* 显示动画状态 */
-  STATE_SHOW_EXPRESSION, /* 显示表情页面状态 */
+  STATE_SHOW_CLOCK,      /* 显示手表界面状态 */
   STATE_DONE             /* 完成状态 */
 } launcher_state_t;
 
@@ -80,6 +80,29 @@ static uint32_t anim_wait_ms = 0;               /* 动画已等待时间(ms) */
 
 static void state_timer_cb(lv_timer_t *timer);
 static void anim_check_timer_cb(lv_timer_t *timer);
+
+/* 空闲超时标志：voice_channel 线程设置，LVGL 定时器轮询并执行 hide */
+static volatile bool g_idle_timeout_pending = false;
+
+static void on_idle_timeout(void)
+{
+  g_idle_timeout_pending = true;
+}
+
+static void idle_timeout_poll_cb(lv_timer_t *timer)
+{
+  if (g_idle_timeout_pending) {
+    g_idle_timeout_pending = false;
+    watch_expression_page_hide();
+  }
+}
+
+/* 唤醒词检测回调：由 voice_channel conversation_thread 调用 */
+static void on_wake_detected(void)
+{
+  /* 在 LVGL 主线程中显示表情 */
+  lv_async_call((lv_async_cb_t)watch_expression_page_show, NULL);
+}
 
 /**
  * @brief 后台拉起 ai_agent 任务（auto 模式：无 CLI，网络就绪后自动开启关键字唤醒）
@@ -97,6 +120,11 @@ static void agent_autostart(void)
       return;
     }
   started = true;
+
+  /* 注册唤醒词回调 + 空闲超时回调 + LVGL 轮询定时器 */
+  voice_channel_set_wake_notify(on_wake_detected);
+  voice_channel_set_idle_timeout_cb(on_idle_timeout);
+  lv_timer_create(idle_timeout_poll_cb, 2000, NULL);
 
   static char *agent_argv[] = { "auto", NULL };
   int pid = task_create("ai_agent", AGENT_TASK_PRIORITY,
@@ -181,20 +209,16 @@ static void goto_next_state(void)
         break;
 
       case STATE_SHOW_ANIM:
-        /* 动画播放完成，进入表情页面状态 */
-        current_state = STATE_SHOW_EXPRESSION;
-
-        /* 先创建表情页面再销毁动画页面，避免切换间隙出现黑屏 */
-        lv_obj_t *new_obj = watch_expression_page_init(content_area);
+        /* 动画播放完成，切换到表情页面 */
+        current_state = STATE_SHOW_CLOCK;
 
         /* 销毁动画 */
         boot_animation_deinit(current_obj);
-        current_obj = new_obj;
-        if (current_obj == NULL)
-          {
-            WATCH_DBG_LOG("[LAUNCHER] ERROR: Failed to init expression page");
-            current_state = STATE_DONE;
-          }
+        current_obj = NULL;
+
+        /* [vendor watch UI 已禁用] 恢复到原来的表情页面 */
+        /* watch_switch_to_watch_app(content_area); */
+        current_obj = (lv_obj_t *)watch_expression_page_init(content_area);
 
         /* 启动延迟唤醒定时器：周期性检测WiFi和ai_agent是否就绪 */
         lv_timer_create(deferred_wake_start_timer_cb, 1000, NULL);
@@ -202,8 +226,8 @@ static void goto_next_state(void)
         lv_task_handler();
         break;
 
-      case STATE_SHOW_EXPRESSION:
-        /* 表情页面持续运行，进入完成状态（不会自动销毁） */
+      case STATE_SHOW_CLOCK:
+        /* 手表界面持续运行，进入完成状态 */
         current_state = STATE_DONE;
         break;
 

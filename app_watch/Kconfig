@@ -1,0 +1,29 @@
+config LVX_USE_ESP32S3_WATCH
+        bool "Smart esp32s3 watch"
+        depends on GRAPHICS_LVGL && LV_USE_FRAGMENT
+        default n
+        ---help---
+                Enable build esp32s3 watch programs
+
+if LVX_USE_ESP32S3_WATCH
+
+config WATCH_BASE_PATH
+        string "Base path in watch"
+        default "/mnt/sd"
+
+config LVX_USE_ESP32S3_WATCH_PRIORITY
+        int "watch task priority"
+        default 100
+
+config LVX_USE_ESP32S3_WATCH_STACKSIZE
+        int "watch stack size"
+        default 32768
+
+config LVX_USE_ESP32S3_WATCH_INPUT_DEVPATH
+        string "Touchscreen device path"
+        default "/dev/input0"
+        depends on INPUT_TOUCHSCREEN
+        ---help---
+                The path to the touchscreen device. Default: "/dev/input0"
+
+endif # LVX_USE_ESP32S3_WATCH

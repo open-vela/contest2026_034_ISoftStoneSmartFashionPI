@@ -33,8 +33,45 @@ if(CONFIG_EXAMPLES_CONTEST2026_WATCH_BOOT)
 
   list(APPEND RESOURCE_CSRCS ${POWER_PNG_ASSETS})
 
+  # ============================================================
+  # Vendor watch UI sources (app_watch)
+  # ============================================================
+  set(VENDOR_WATCH_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../app_watch)
+
+  # app_watch apps (exclude xiaozhi_ai to avoid conflict with ai_agent)
+  file(GLOB_RECURSE VW_APPS_CSRCS
+    ${VENDOR_WATCH_DIR}/apps/alarm/*.c
+    ${VENDOR_WATCH_DIR}/apps/boot/*.c
+    ${VENDOR_WATCH_DIR}/apps/calendar/*.c
+    ${VENDOR_WATCH_DIR}/apps/common/*.c
+    ${VENDOR_WATCH_DIR}/apps/home_control/*.c
+    ${VENDOR_WATCH_DIR}/apps/launcher/*.c
+    ${VENDOR_WATCH_DIR}/apps/settings/*.c
+    ${VENDOR_WATCH_DIR}/apps/sos/*.c
+    ${VENDOR_WATCH_DIR}/apps/sports/*.c
+    ${VENDOR_WATCH_DIR}/apps/stopwatch/*.c
+    # weather excluded: ${VENDOR_WATCH_DIR}/apps/weather/*.c
+  )
+
+  # app_watch resource manager + generated assets
+  set(VW_RESOURCE_CSRCS
+    ${VENDOR_WATCH_DIR}/resource/resource.c
+  )
+  file(GLOB VW_IMG_ASSETS ${VENDOR_WATCH_DIR}/resource/image/generated/*.c)
+  file(GLOB VW_FONT_ASSETS ${VENDOR_WATCH_DIR}/resource/font/generated/*.c)
+  file(GLOB VW_PWR_JPG_ASSETS ${VENDOR_WATCH_DIR}/resource/power_jpg/generated/*.c)
+  file(GLOB VW_PWR_PNG_ASSETS ${VENDOR_WATCH_DIR}/resource/power_png/generated/*.c)
+  list(APPEND VW_RESOURCE_CSRCS ${VW_IMG_ASSETS} ${VW_FONT_ASSETS} ${VW_PWR_JPG_ASSETS} ${VW_PWR_PNG_ASSETS})
+
+  # app_watch page system + utils + demo entry
+  # Exclude files with missing HAL dependencies: heart_rate, _template, dialplate
+  file(GLOB VW_PAGE_CSRCS ${VENDOR_WATCH_DIR}/page/*.c)
+  list(FILTER VW_PAGE_CSRCS EXCLUDE REGEX ".*heart_rate\\.c$|.*_template\\.c$|.*dialplate\\.c$")
+  file(GLOB VW_UTILS_CSRCS ${VENDOR_WATCH_DIR}/utils/*.c)
+  set(VW_DEMO_SRC ${VENDOR_WATCH_DIR}/watch_demo.c)
+
   # Merge all source files
-  set(ALL_CSRCS ${APPS_CSRCS} ${RESOURCE_CSRCS})
+  set(ALL_CSRCS ${APPS_CSRCS} ${RESOURCE_CSRCS} ${VW_APPS_CSRCS} ${VW_RESOURCE_CSRCS} ${VW_PAGE_CSRCS} ${VW_UTILS_CSRCS} ${VW_DEMO_SRC})
 
   nuttx_add_application(
     NAME
@@ -47,12 +84,28 @@ if(CONFIG_EXAMPLES_CONTEST2026_WATCH_BOOT)
     ${CONFIG_EXAMPLES_CONTEST2026_WATCH_BOOT}
     DEPENDS
     lvgl
+    jsonc
+    curl
     SRCS
     ${MAINSRC} ${ALL_CSRCS}
   )
 
-  # Add include path for the watch app root directory
-  # so that #include "resource/resource.h" and #include "apps/launcher/launcher.h" work
-  target_include_directories(watch PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+  # Add include paths
+  target_include_directories(watch PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${VENDOR_WATCH_DIR}
+    ${VENDOR_WATCH_DIR}/resource
+    ${VENDOR_WATCH_DIR}/resource/image/generated
+    ${VENDOR_WATCH_DIR}/resource/font/generated
+    ${VENDOR_WATCH_DIR}/resource/power_jpg/generated
+    ${VENDOR_WATCH_DIR}/resource/power_png/generated
+    ${VENDOR_WATCH_DIR}/page
+    ${VENDOR_WATCH_DIR}/utils
+  )
+
+  # Force-include display compatibility header
+  target_compile_options(watch PRIVATE
+    -include ${VENDOR_WATCH_DIR}/apps/common/display_compat.h
+  )
 
 endif()

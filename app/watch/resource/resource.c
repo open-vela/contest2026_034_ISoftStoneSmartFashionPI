@@ -21,7 +21,7 @@
 #include "image/generated/lvgl_assets.h"
 #include "power_png/generated/power_png_assets.h"
 #include "power_png/generated/gif_bootlogo.h"
-#include "image/Expression/gif2/generated/expression_gif2_assets.h"
+#include "image/Expression/gif1/generated/expression_gif1_assets.h"
 #include "font/generated/MiSans_Regular.h"
 
 /*********************

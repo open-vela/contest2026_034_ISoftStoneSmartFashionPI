@@ -227,18 +227,18 @@ static enum button_state_e button_update(struct button_context_s *ctx)
 
 static void handle_boot_short_press(void)
 {
-  printf("[BTN] BOOT short press detected\n");
+  BTN_LOG("[BTN] BOOT short press detected\n");
 
   g_mic_muted = !g_mic_muted;
   if (g_mic_muted) {
     es7210_set_mic_mute(true);   /* 硬件禁麦：ADC 输出静音 */
     watch_expression_page_set_face("sleepy", 0);
-    printf("[BTN] Mic muted (HW) — face=sleepy\n");
+    BTN_LOG("[BTN] Mic muted (HW) — face=sleepy\n");
   } else {
     es7210_set_mic_mute(false);  /* 硬件开麦 */
     voice_channel_enable_wake_gate();  /* 重新要求唤醒词 */
     /* face 由 voice_channel 状态机自动管理 (listening/thinking/speaking) */
-    printf("[BTN] Mic unmuted (HW) — wake gate enabled\n");
+    BTN_LOG("[BTN] Mic unmuted (HW) — wake gate enabled\n");
   }
 }
 

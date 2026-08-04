@@ -216,6 +216,20 @@ lv_obj_t *watch_expression_page_init(lv_obj_t *parent)
   return s_page_root;
 }
 
+void watch_expression_page_hide(void)
+{
+  if (s_page_root) {
+    lv_obj_add_flag(s_page_root, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
+void watch_expression_page_show(void)
+{
+  if (s_page_root) {
+    lv_obj_clear_flag(s_page_root, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
 void watch_expression_page_deinit(lv_obj_t *page_obj)
 {
   /* 重置状态 */
@@ -499,4 +513,41 @@ void watch_battery_check_stop(void)
       lv_timer_del(s_battery_timer);
       s_battery_timer = NULL;
     }
+}
+
+/* ── Vendor Watch UI 切换接口 ──────────────────────────────────────── */
+
+/* 外部声明 - vendor watch UI 入口（app_watch 模块） */
+extern int vw_launcher_init(lv_obj_t *parent);
+extern void vw_resource_init(void);
+
+/**
+ * @brief 切换到 vendor 手表界面
+ *
+ * 清理当前表情页面资源，初始化 vendor watch UI（表盘 + Fragment 页面系统）。
+ * 调用后原表情页面不可恢复。
+ *
+ * @param parent LVGL 屏幕对象（通常传 lv_scr_act()）
+ * @return 0 成功，负值失败
+ */
+int watch_switch_to_watch_app(lv_obj_t *parent)
+{
+  /* 1. 清理现有表情页面 */
+  if (s_page_root != NULL)
+    {
+      watch_expression_page_deinit(s_page_root);
+    }
+
+  /* 2. 清理恢复定时器 */
+  if (s_restore_timer != NULL)
+    {
+      lv_timer_del(s_restore_timer);
+      s_restore_timer = NULL;
+    }
+
+  /* 3. 初始化 vendor 资源系统（FreeType 字体等） */
+  vw_resource_init();
+
+  /* 4. 启动 vendor 手表 UI（表盘 + 页面系统） */
+  return vw_launcher_init(parent);
 }

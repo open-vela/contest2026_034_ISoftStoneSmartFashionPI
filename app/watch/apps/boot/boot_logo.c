@@ -61,7 +61,7 @@ lv_obj_t *boot_logo_init(lv_obj_t *parent)
   lv_obj_center(bg);
   lv_obj_clear_flag(bg, LV_OBJ_FLAG_SCROLLABLE);
 
-  /* 创建logo图像 */
+  /* 创建logo图像（502x410 旋转 270° 以适配 410x502 容器） */
   lv_obj_t *logo = lv_img_create(bg);
   const void *img_src = watch_resource_get_img("isoftstone_logo");
   if (img_src) {
@@ -69,7 +69,10 @@ lv_obj_t *boot_logo_init(lv_obj_t *parent)
   } else {
     WATCH_DBG_LOG("[BOOT] boot_logo_init: img_src is NULL");
   }
-  lv_obj_center(logo);
+  lv_obj_set_style_transform_rotation(logo, 2700, 0);
+  lv_obj_set_style_transform_pivot_x(logo, 251, 0);
+  lv_obj_set_style_transform_pivot_y(logo, 205, 0);
+  lv_obj_align(logo, LV_ALIGN_CENTER, -100, 0);
   return bg;
 }
 

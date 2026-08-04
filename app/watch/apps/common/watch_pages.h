@@ -80,6 +80,12 @@ extern "C" {
 lv_obj_t *watch_expression_page_init(lv_obj_t *parent);
 
 /**
+ * @brief 隐藏/显示表情页面（用于待机/唤醒切换）
+ */
+void watch_expression_page_hide(void);
+void watch_expression_page_show(void);
+
+/**
  * @brief 销毁表情展示公共页面
  *
  *  释放页面相关资源。
@@ -155,5 +161,16 @@ void watch_battery_check_start(void);
  * @brief 停止电池电量周期监控
  */
 void watch_battery_check_stop(void);
+
+/**
+ * @brief 切换到 vendor 手表界面
+ *
+ * 清理当前表情页面资源，初始化 vendor watch UI（表盘 + Fragment 页面系统）。
+ * 调用后原表情页面不可恢复。
+ *
+ * @param parent LVGL 屏幕对象（通常传 lv_scr_act()）
+ * @return 0 成功，负值失败
+ */
+int watch_switch_to_watch_app(lv_obj_t *parent);
 
 #endif /* WATCH_PAGES_H */
