@@ -1053,12 +1053,12 @@ static void *wifi_reconnect_thread(void *arg)
             sleep(2);
         }
 
-        /* 多个已保存WiFi时先预扫描（每轮重扫），只尝试在场的热点，
-         * 避免对不在场的 SSID 白耗关联/DHCP时间。扫描失败或一个都
-         * 不在场（可能是隐藏SSID或扫描漏报）则回退为全部尝试 */
+        /* 预扫描：只尝试在场的热点，避免对不在场的 SSID 白耗关联/DHCP时间。
+         * 首次扫描未命中已保存WiFi时，等1秒重试一次（开机初期驱动可能未就绪）；
+         * 两次都未命中则直接放弃本轮，不做盲连 */
         char scan_essids[16][WAPI_ESSID_MAX_SIZE + 1];
         int scan_count = -1;
-        if (g_saved_wifi_count > 1) {
+        for (int scan_try = 0; scan_try < 2; scan_try++) {
             scan_count = wifi_scan_sync(scan_essids, 16, 5000);
             if (scan_count >= 0) {
                 bool any_in_range = false;
@@ -1070,11 +1070,25 @@ static void *wifi_reconnect_thread(void *arg)
                         }
                     }
                 }
-                if (!any_in_range) {
-                    WATCH_DBG_LOG("[WiFi] No saved WiFi in scan, fallback to try all\n");
-                    scan_count = -1;
+                if (any_in_range) {
+                    break;  /* 扫描有效且有已保存WiFi在场 */
                 }
+                WATCH_DBG_LOG("[WiFi] No saved WiFi in scan (attempt %d/2)\n",
+                              scan_try + 1);
+                scan_count = -1;
             }
+            /* 首次失败：等1秒让驱动稳定后重试；第二次仍失败则放弃本轮 */
+            if (scan_try == 0) {
+                WATCH_DBG_LOG("[WiFi] Pre-scan miss, retry in 1s...\n");
+                sleep(1);
+            } else {
+                WATCH_DBG_LOG("[WiFi] Pre-scan miss after retry, skip this round\n");
+            }
+        }
+
+        /* 两次扫描都未找到已保存WiFi，跳过本轮（不做盲连） */
+        if (scan_count < 0) {
+            continue;
         }
 
         // 遍历所有保存的WiFi，依次尝试连接
@@ -1100,11 +1114,10 @@ static void *wifi_reconnect_thread(void *arg)
             WATCH_DBG_LOG("[WiFi] Trying saved WiFi [%d/%d]: %s\n",
                           i + 1, g_saved_wifi_count, ssid);
 
-            // 尝试连接：预扫描已确认AP在场时跳过关联门控直接DHCP
-            // （扫描后驱动关联上报滞后，门控会误杀）；无有效扫描时
-            // 才启用门控，防AP不在场时DHCP阻塞20秒+
+            // 尝试连接：预扫描已确认AP在场，跳过关联门控直接DHCP
+            // （扫描后驱动关联上报滞后，门控会误杀）
             bool connect_success = false;
-            if (wifi_connect("wlan0", ssid, password, scan_count < 0) == 0) {
+            if (wifi_connect("wlan0", ssid, password, false) == 0) {
                 // 轮询等待连接建立（成功即返回，最长 WIFI_CONNECT_WAIT_MS）
                 WATCH_DBG_LOG("[WiFi] Waiting for connection to establish...\n");
                 connect_success = wifi_wait_connected("wlan0", ssid,
