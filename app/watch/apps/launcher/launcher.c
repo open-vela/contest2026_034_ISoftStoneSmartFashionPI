@@ -32,6 +32,9 @@
 #include "../boot/boot_logo.h"
 #include "../boot/boot_animation.h"
 #include "../common/watch_pages.h"
+
+/* System alert audio (flat build, symbol from ai_agent package) */
+extern void tool_system_alert_play(int alert_id, int force);
 #include "../settings/settings_wifi.h"
 #include "voice/voice_channel.h"
 
@@ -159,6 +162,11 @@ static void deferred_wake_start_timer_cb(lv_timer_t *timer)
         voice_channel_start_wake();
         lv_timer_del(timer);  /* stop this timer */
         return;
+    }
+
+    /* After 10s without WiFi (10 attempts × 1s), play no-network alert once */
+    if (attempts == 10) {
+        tool_system_alert_play(16, 0);
     }
 
     /* Safety: give up after 180 attempts (180 seconds) */

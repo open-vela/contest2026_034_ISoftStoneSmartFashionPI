@@ -43,6 +43,9 @@
 #include "../home_control/home_control.h"
 #include "../volume_control/volume_control.h"
 
+/* System alert audio (flat build, symbol from ai_agent package) */
+extern void tool_system_alert_play(int alert_id, int force);
+
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
@@ -460,6 +463,8 @@ bool watch_battery_check_low_warning(void)
                  "[BATTERY] 电量过低: 当前电量 %u%%, 请及时充电",
                  (unsigned int)soc);
           s_battery_low_warned = true;
+          /* Play low-battery alert audio (highest priority) */
+          tool_system_alert_play(15, 0);
         }
       return true;
     }
