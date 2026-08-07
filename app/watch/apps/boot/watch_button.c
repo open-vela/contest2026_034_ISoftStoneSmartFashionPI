@@ -22,7 +22,6 @@
 #include <unistd.h>
 
 #include <lvgl/lvgl.h>
-#include <nuttx/audio/es7210.h>
 #include "esp32s3_gpio.h"
 
 #include "watch_button.h"
@@ -31,6 +30,7 @@
 /* ── Watch expression / voice externs (flat build) ──────────── */
 extern int  watch_expression_page_set_face(const char* face_id, int duration_ms);
 extern void voice_channel_enable_wake_gate(void);
+extern void voice_channel_request_mic_mute(bool mute);
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -233,13 +233,16 @@ static void handle_boot_short_press(void)
   if (g_mic_muted) {
     es7210_set_mic_mute(true);   /* 硬件禁麦：ADC 输出静音 */
     voice_channel_enable_wake_gate();  /* 立即上锁，禁止噪声触发LLM */
+    /* Defer I2C mute to voice_channel thread — calling es7210_set_mic_mute
+     * from LVGL timer races with audio driver I2C access and can deadlock. */
+    voice_channel_request_mic_mute(true);
     watch_expression_page_set_face("sleepy", 0);
-    BTN_LOG("[BTN] Mic muted (HW) — face=sleepy\n");
+    BTN_LOG("[BTN] Mic muted (via voice thread) — face=sleepy\n");
   } else {
-    es7210_set_mic_mute(false);  /* 硬件开麦 */
+    voice_channel_request_mic_mute(false);
     voice_channel_enable_wake_gate();  /* 重新要求唤醒词 */
     /* face 由 voice_channel 状态机自动管理 (listening/thinking/speaking) */
-    BTN_LOG("[BTN] Mic unmuted (HW) — wake gate enabled\n");
+    BTN_LOG("[BTN] Mic unmuted (via voice thread) — wake gate enabled\n");
   }
 }
 
