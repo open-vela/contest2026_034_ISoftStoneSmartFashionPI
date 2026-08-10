@@ -26,6 +26,12 @@
 #include "../sos/sos.h"
 #include "../launcher/dial.h"
 
+#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
+#  define SENSOR_LOG(fmt, ...) printf("[SENSOR] " fmt "\n", ##__VA_ARGS__)
+#else
+#  define SENSOR_LOG(fmt, ...)
+#endif
+
 #define SENSOR_SAMPLE_INTERVAL   10000
 #define SENSOR_POLL_TIMEOUT      1000
 
@@ -86,7 +92,7 @@ int sensor_data_init(void)
     meta = ORB_ID(sensor_accel);
     g_fd_accel = orb_subscribe_multi(meta, 0);
     if (g_fd_accel < 0) {
-        printf("[SENSOR] Failed to subscribe sensor_accel: %d\n", g_fd_accel);
+        SENSOR_LOG("Failed to subscribe sensor_accel: %d", g_fd_accel);
         return -1;
     }
     orb_set_interval(g_fd_accel, SENSOR_SAMPLE_INTERVAL);
@@ -94,7 +100,7 @@ int sensor_data_init(void)
     meta = ORB_ID(sensor_gyro);
     g_fd_gyro = orb_subscribe_multi(meta, 0);
     if (g_fd_gyro < 0) {
-        printf("[SENSOR] Failed to subscribe sensor_gyro: %d\n", g_fd_gyro);
+        SENSOR_LOG("Failed to subscribe sensor_gyro: %d", g_fd_gyro);
         orb_unsubscribe(g_fd_accel);
         g_fd_accel = -1;
         return -1;
@@ -103,7 +109,7 @@ int sensor_data_init(void)
 
     g_sensor_initialized = true;
     g_last_az = -1.0f;
-    printf("[SENSOR] Sensor data module initialized\n");
+    SENSOR_LOG("Sensor data module initialized");
     return 0;
 }
 
@@ -220,7 +226,7 @@ static void sensor_monitor_timer_cb(lv_timer_t *timer)
             esp32s3_display_on();
             setchange(1);
             ft3168_display_timeout_setup();
-            printf("[WRIST] Screen on\n");
+            SENSOR_LOG("[WRIST] Screen on");
         }
     }
 
@@ -369,7 +375,7 @@ void sensor_step_counter_update(const sensor_imu_data_t *data)
                     }
                     g_step_distance += adaptive_step_length;
                     g_step_last_peak_time = now;
-                    printf("[STEP] #%d dist=%.2f swing=%.2f mag=%.2f thresh=%.2f\n",
+                    SENSOR_LOG("[STEP] #%d dist=%.2f swing=%.2f mag=%.2f thresh=%.2f",
                            g_step_count, g_step_distance, swing, accel_mag, adaptive_threshold);
                 }
             }
@@ -429,7 +435,7 @@ bool wrist_raise_load_config(void)
     close(fd);
 
     g_wrist_raise_enabled = (val != 0);
-    printf("[WRIST] Loaded config: enabled=%d\n", g_wrist_raise_enabled);
+    SENSOR_LOG("[WRIST] Loaded config: enabled=%d", g_wrist_raise_enabled);
     return true;
 }
 
@@ -437,7 +443,7 @@ bool wrist_raise_save_config(bool enabled)
 {
     int fd = open(WRIST_RAISE_CONFIG_FILE, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd < 0) {
-        printf("[WRIST] Failed to save config\n");
+        SENSOR_LOG("[WRIST] Failed to save config");
         return false;
     }
 
@@ -446,7 +452,7 @@ bool wrist_raise_save_config(bool enabled)
     close(fd);
 
     g_wrist_raise_enabled = enabled;
-    printf("[WRIST] Saved config: enabled=%d\n", enabled);
+    SENSOR_LOG("[WRIST] Saved config: enabled=%d", enabled);
     return true;
 }
 
@@ -468,13 +474,13 @@ void sensor_wrist_raise_timer_start(void)
     }
 
     if (sensor_data_init() != 0) {
-        printf("[SENSOR] Failed to init sensor\n");
+        SENSOR_LOG("Failed to init sensor");
         return;
     }
 
     g_sensor_monitor_timer = lv_timer_create(sensor_monitor_timer_cb,
                                               SENSOR_MONITOR_PERIOD_MS, NULL);
-    printf("[SENSOR] Monitor timer started\n");
+    SENSOR_LOG("Monitor timer started");
 }
 
 void sensor_wrist_raise_timer_stop(void)
@@ -482,7 +488,7 @@ void sensor_wrist_raise_timer_stop(void)
     if (g_sensor_monitor_timer != NULL) {
         lv_timer_del(g_sensor_monitor_timer);
         g_sensor_monitor_timer = NULL;
-        printf("[SENSOR] Monitor timer stopped\n");
+        SENSOR_LOG("Monitor timer stopped");
     }
 }
 

@@ -47,8 +47,15 @@ extern "C"
 lv_obj_t *boot_logo_init(lv_obj_t *parent);
 
 /**
+ * @brief 查询开机logo GIF是否已播放完成
+ *
+ * @return true 表示GIF已播放完最后一帧
+ */
+bool boot_logo_is_finished(void);
+
+/**
  * @brief 销毁开机logo
- * 
+ *
  * @param logo_obj logo对象
  */
 void boot_logo_deinit(lv_obj_t *logo_obj);

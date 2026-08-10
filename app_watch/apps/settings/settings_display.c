@@ -6,11 +6,18 @@
 #include "settings.h"
 #include "../common/watch_pages.h"
 #include "../common/sensor_data.h"
+#include "../common/display_compat.h"
 #include "../launcher/launcher.h"
 #include "../../resource/resource.h"
 #include <stdio.h>
 #include <nuttx/lcd/co5300.h>
 #include <../../../../apps/graphics/lvgl/lvgl/src/drivers/nuttx/lv_nuttx_touchscreen.h>
+
+#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
+#  define DISPLAY_LOG(fmt, ...) printf("[DISPLAY] " fmt "\n", ##__VA_ARGS__)
+#else
+#  define DISPLAY_LOG(fmt, ...)
+#endif
 
 /* UI对象 */
 static lv_obj_t* display_base = NULL;
@@ -52,7 +59,7 @@ static void settings_display_create(void)
     wrist_raise_enabled = wrist_raise_get_enabled();
     // 获取当前亮度等级
     current_level = esp32s3_get_brightness();
-    printf("settings get cur brightness level:%d\n", current_level);
+    DISPLAY_LOG("settings get cur brightness level:%d", current_level);
     if (current_level < 0 || current_level > 4)
     {
         current_level = 2;  // 默认中等亮度
@@ -250,7 +257,7 @@ static void set_brightness(int level)
 {
     if (level >= 0 && level < 5) {
         esp32s3_set_brightness(level);
-        printf("Set brightness to level %d\n", level);
+        DISPLAY_LOG("Set brightness to level %d", level);
     }
 }
 
@@ -261,7 +268,7 @@ static void wrist_raise_switch_event_cb(lv_event_t *e)
 {
     lv_obj_t *obj = lv_event_get_target(e);
     wrist_raise_enabled = lv_obj_has_state(obj, LV_STATE_CHECKED);
-    printf("Wrist raise enabled: %d\n", wrist_raise_enabled);
+    DISPLAY_LOG("Wrist raise enabled: %d", wrist_raise_enabled);
     wrist_raise_set_enabled(wrist_raise_enabled);
 }
 
@@ -383,7 +390,7 @@ static void timeout_roller_confirm_handler(lv_event_t *e)
     uint16_t selected = lv_roller_get_selected(timeout_roller);
     screen_timeout = (selected + 1) * 5;
     display_set_timeout(screen_timeout);
-    printf("Set screen timeout to %d seconds\n", screen_timeout);
+    DISPLAY_LOG("Set screen timeout to %d seconds", screen_timeout);
     
     // 退出页面
     if (timeout_base != NULL) {
@@ -395,7 +402,7 @@ static void timeout_roller_confirm_handler(lv_event_t *e)
 
 static void timeout_roller_cancel_handler(lv_event_t *e)
 {
-    printf("Set screen cancel.\n");
+    DISPLAY_LOG("Set screen cancel.");
     // 退出页面
     if (timeout_base != NULL) {
         vw_watch_pop_page(timeout_base);

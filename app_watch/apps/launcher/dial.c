@@ -36,6 +36,12 @@
 #include "../../resource/resource.h"
 #include "launcher.h"
 
+#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
+#  define DIAL_LOG(fmt, ...) printf("[DIAL] " fmt "\n", ##__VA_ARGS__)
+#else
+#  define DIAL_LOG(fmt, ...)
+#endif
+
 /****************************************************************************
  * Private Data
  ****************************************************************************/
@@ -510,7 +516,7 @@ static void switch_dial_thumbnail_click_cb(lv_event_t *e)
 {
     int *index = (int *)lv_event_get_user_data(e);
 
-    printf("Selected dial: %d\n", *index);
+    DIAL_LOG("Selected dial: %d", *index);
 
     /* 更新当前表盘类型 */
     current_dial_type = (dial_type_t)*index;
@@ -640,7 +646,7 @@ static void dial_long_press_cb(lv_event_t *e)
     lv_event_code_t code = lv_event_get_code(e);
     
     if (code == LV_EVENT_LONG_PRESSED) {
-        printf("Long press detected, opening dial switch UI\n");
+        DIAL_LOG("Long press detected, opening dial switch UI");
 
         /* 隐藏表盘，保持常驻内存 */
         dial_hide();
@@ -676,7 +682,7 @@ static void clock_screen_gesture_handler(lv_event_t *e)
                 /* 左滑切换到应用列表 */
                 if(delta_x < -50 && abs(delta_x) > abs(delta_y))
                 {
-                    printf("Swipe left to app list\n");
+                    DIAL_LOG("Swipe left to app list");
                     
                     /* 隐藏表盘，保持常驻内存 */
                     dial_hide();
@@ -708,18 +714,14 @@ static void clock_screen_gesture_handler(lv_event_t *e)
  */
 lv_obj_t *dial_init(lv_obj_t *parent)
 {
-    printf("dial_init start: parent=%p\n", parent);
+    DIAL_LOG("dial_init start: parent=%p", parent);
     
     /* 初始化图片数组 */
-    printf("[DIAL] Step 1: init_dial_images\n");
-    fflush(stdout);
     init_dial_images();
     
     /* 如果已存在时钟定时器,先删除 */
     if (g_clock_timer != NULL)
     {
-        printf("[DIAL] Step 2: Deleting existing clock timer\n");
-        fflush(stdout);
         lv_timer_del(g_clock_timer);
         g_clock_timer = NULL;
     }
@@ -727,8 +729,6 @@ lv_obj_t *dial_init(lv_obj_t *parent)
     /* 如果已存在表盘容器,先删除 */
     if (dial_container != NULL)
     {
-        printf("[DIAL] Step 3: Deleting existing dial container\n");
-        fflush(stdout);
         lv_obj_del(dial_container);
         dial_container = NULL;
     }
@@ -770,8 +770,7 @@ lv_obj_t *dial_init(lv_obj_t *parent)
     /* 立即更新一次 */
     update_clock_cb(NULL);
     
-    printf("dial_init end.\n");
-    fflush(stdout);
+    DIAL_LOG("dial_init end.");
 
     return dial_container;
 }
@@ -782,12 +781,11 @@ lv_obj_t *dial_init(lv_obj_t *parent)
  */
 void dial_deinit(lv_obj_t *clock_obj)
 {
-    printf("dial_deinit: clock_obj=%p\n", clock_obj);
+    DIAL_LOG("dial_deinit: clock_obj=%p", clock_obj);
     
     /* 删除时钟定时器 */
     if (g_clock_timer != NULL)
     {
-        printf("[DIAL_DEINIT] Deleting clock timer\n");
         lv_timer_del(g_clock_timer);
         g_clock_timer = NULL;
     }
@@ -830,7 +828,7 @@ void dial_deinit(lv_obj_t *clock_obj)
     
     dial_container = NULL;
     
-    printf("[DIAL_DEINIT] All global variables reset\n");
+    DIAL_LOG("[DIAL_DEINIT] All global variables reset");
 }
 
 /**

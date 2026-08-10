@@ -18,9 +18,9 @@
 #define QWEATHER_DEFAULT_LOCATION "101190101"
 #define QWEATHER_DEFAULT_CITY "南京"
 
-/* 动态定位（WiFi连接后通过IP定位更新） */
-extern char g_weather_location_id[32];
-extern char g_weather_city[64];
+/* 动态定位（WiFi连接后通过IP定位更新）— 现在在 weather.c 中堆分配 */
+/* extern char g_weather_location_id[32]; -- removed */
+/* extern char g_weather_city[64]; -- removed */
 
 /* 定位相关 */
 typedef struct {

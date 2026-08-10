@@ -8,6 +8,12 @@
 #include "../../resource/resource.h"
 #include <stdio.h>
 
+#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
+#  define SETTINGS_LOG(fmt, ...) printf("[SETTINGS] " fmt "\n", ##__VA_ARGS__)
+#else
+#  define SETTINGS_LOG(fmt, ...)
+#endif
+
 
 static lv_obj_t * settings_base = NULL;
 static lv_obj_t * wifi_btn = NULL;
@@ -19,6 +25,7 @@ static lv_obj_t * volume_btn = NULL;
 static lv_obj_t * display_btn = NULL;
 static lv_obj_t * about_btn = NULL;
 static lv_obj_t * system_btn = NULL;
+static lv_obj_t * ui_mode_btn = NULL;
 
 static lv_style_t style_base;
 static lv_style_t btn_style;
@@ -31,7 +38,7 @@ static void setup_settings_button(lv_obj_t *btn);
 
 void settings_app_click_callback(lv_event_t *e)
 {
-  printf("settings app clicked\n");	// log打印
+  SETTINGS_LOG("settings app clicked");
   settings_app_create();			// app界面创建
 }
 
@@ -80,6 +87,7 @@ static void settings_app_create(void)
     display_btn = lv_list_add_btn(list, vw_resource_get_img("icon_set_light"), "显示");
     about_btn = lv_list_add_btn(list, vw_resource_get_img("icon_set_about"), "关于");
     system_btn = lv_list_add_btn(list, vw_resource_get_img("icon_set_system"), "关机与重启");
+    ui_mode_btn = lv_list_add_btn(list, vw_resource_get_img("icon_set_system"), "切换UI模式");
     
     setup_settings_button(wifi_btn);
 
@@ -90,6 +98,7 @@ static void settings_app_create(void)
     setup_settings_button(display_btn);
     setup_settings_button(about_btn);
     setup_settings_button(system_btn);
+    setup_settings_button(ui_mode_btn);
 
 	lv_obj_add_event_cb(wifi_btn, settings_wifi_event_cb, LV_EVENT_CLICKED, NULL);
 
@@ -100,6 +109,7 @@ static void settings_app_create(void)
     lv_obj_add_event_cb(display_btn, settings_display_event_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(about_btn, settings_about_event_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(system_btn, settings_system_event_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(ui_mode_btn, settings_ui_mode_event_cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_add_flag(list, LV_OBJ_FLAG_EVENT_BUBBLE);
     lv_obj_add_event_cb(settings_base, slide_gesture_handler,LV_EVENT_ALL, NULL);
@@ -180,7 +190,7 @@ static void setup_settings_button(lv_obj_t *btn)
 
 static void forbift_btn_click(void)
 {
-    printf("forbid\n");
+    SETTINGS_LOG("forbid");
     lv_obj_clear_flag(wifi_btn, LV_OBJ_FLAG_CLICKABLE);
 
     lv_obj_clear_flag(date_btn, LV_OBJ_FLAG_CLICKABLE);
@@ -194,7 +204,7 @@ static void forbift_btn_click(void)
 
 static void unforbift_btn_click(void)
 {
-    printf("unforbid\n");
+    SETTINGS_LOG("unforbid");
     lv_obj_add_flag(wifi_btn, LV_OBJ_FLAG_CLICKABLE);
 
     lv_obj_add_flag(date_btn, LV_OBJ_FLAG_CLICKABLE);

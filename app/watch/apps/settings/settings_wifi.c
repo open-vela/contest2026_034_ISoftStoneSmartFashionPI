@@ -50,23 +50,39 @@ typedef struct {
     char password[64];
 } saved_wifi_t;
 
-/* 保存的WiFi列表 */
+/* 保存的WiFi列表 - 大型静态数据改为堆分配 */
 #define MAX_SAVED_WIFI 10
-static saved_wifi_t g_saved_wifi_list[MAX_SAVED_WIFI] = {0};
-static int g_saved_wifi_count = 0;
 
-static wifi_scan_data_t g_wifi_scan_data = {0};
+/* 将大型静态数据包装在堆分配的结构体中 */
+typedef struct {
+    saved_wifi_t saved_wifi_list[MAX_SAVED_WIFI];
+    wifi_scan_data_t wifi_scan_data;
+    char selected_ssid[64];
+    char wifi_password[64];
+    char connected_ssid[64];
+} wifi_static_data_t;
+
+static wifi_static_data_t *wifi_sd = NULL;
+static wifi_static_data_t* wifi_sd_get(void) {
+    if (!wifi_sd) wifi_sd = calloc(1, sizeof(wifi_static_data_t));
+    return wifi_sd;
+}
+#define g_saved_wifi_list (wifi_sd_get()->saved_wifi_list)
+#define g_wifi_scan_data (wifi_sd_get()->wifi_scan_data)
+#define g_selected_ssid (wifi_sd_get()->selected_ssid)
+#define g_wifi_password (wifi_sd_get()->wifi_password)
+#define g_connected_ssid (wifi_sd_get()->connected_ssid)
+
+static int g_saved_wifi_count = 0;
 static pthread_t g_scan_thread __attribute__((unused)) = 0;
 static lv_obj_t *g_list_cont = NULL;  // 保存列表容器指针用于更新
 static lv_timer_t *g_update_timer = NULL;  // 定时器用于检查扫描状态
 static lv_timer_t *g_status_timer = NULL;  // 定时器用于检查连接状态
-static char g_selected_ssid[64] = {0};  // 选中的 WiFi SSID
-static char g_wifi_password[64] = {0};  // WiFi 密码
+/* g_selected_ssid, g_wifi_password, g_connected_ssid 已移至堆分配 */
 static lv_obj_t *g_password_label = NULL;  // 密码显示标签
 static lv_obj_t *g_keyboard_cont = NULL;  // 键盘容器
 static int g_keyboard_mode = 0;  // 0: 小写字母, 1: 大写字母, 2: 数字符号
 static lv_obj_t *g_dialog_mask = NULL;  // 对话框遮罩
-static char g_connected_ssid[64] = {0};  // 已连接的 WiFi SSID
 static bool g_wifi_enabled = false;  // WiFi 开关状态
 static bool g_is_reconnecting = false;  // 是否正在重连
 static time_t g_connect_time = 0;  // 连接建立时间

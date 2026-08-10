@@ -100,7 +100,7 @@ lv_obj_t *boot_animation_init(lv_obj_t *parent)
   lv_obj_add_event_cb(s_gif_obj, gif_ready_cb, LV_EVENT_READY, NULL);
 
   /* 设置嵌入式GIF数据源并开始播放 */
-  const void *gif_src = watch_resource_get_bootlogo_gif();
+  const void *gif_src = watch_resource_get_expr_anim_gif();
   if (gif_src) {
     lv_gif_set_src(s_gif_obj, gif_src);
   } else {

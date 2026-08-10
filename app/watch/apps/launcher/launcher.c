@@ -31,11 +31,11 @@
 #include "launcher.h"
 #include "../boot/boot_logo.h"
 #include "../boot/boot_animation.h"
+#include "../boot/watch_boot_logo.h"
+#include "../boot/watch_boot_animation.h"
 #include "../common/watch_pages.h"
-
-/* System alert audio (flat build, symbol from ai_agent package) */
-extern void tool_system_alert_play(int alert_id, int force);
-#include "../settings/settings_wifi.h"
+#include "../common/ui_mode_manager.h"
+#include "apps/settings/settings_wifi.h"  /* 使用手表UI的WiFi设置头文件 */
 #include "voice/voice_channel.h"
 
 /* 调试打印开关：menuconfig 打开 CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG 后生效。
@@ -51,9 +51,10 @@ extern void tool_system_alert_play(int alert_id, int force);
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define LOGO_DISPLAY_TIME      1000   /* 开机logo显示时间(ms) */
-#define ANIMATION_DISPLAY_TIME 9000   /* 开机动画最长显示时间(ms)，超时强制切换 */
+#define LOGO_DISPLAY_TIME      5000   /* 开机logo最长显示时间(ms)，超时强制切换 */
+#define ANIMATION_DISPLAY_TIME 5000   /* 开机动画最长显示时间(ms)，超时强制切换 */
 #define ANIM_CHECK_PERIOD_MS   100    /* 动画播放完成检测周期(ms) */
+#define LOGO_CHECK_PERIOD_MS   100    /* logo播放完成检测周期(ms) */
 
 /* ai_agent 自启动参数（与 packages/ai_agent Makefile 配置对齐） */
 #define AGENT_TASK_PRIORITY    100
@@ -76,13 +77,15 @@ static launcher_state_t current_state = STATE_INIT; /* 当前状态 */
 static lv_obj_t *content_area = NULL;           /* 内容区域 */
 static lv_obj_t *current_obj = NULL;            /* 当前显示的对象 */
 static uint32_t anim_wait_ms = 0;               /* 动画已等待时间(ms) */
+static uint32_t logo_wait_ms = 0;               /* logo已等待时间(ms) */
+static ui_mode_t g_boot_ui_mode = UI_MODE_EXPRESSION; /* 本次开机的UI模式 */
 
 /****************************************************************************
  * Private Functions
  ****************************************************************************/
 
-static void state_timer_cb(lv_timer_t *timer);
 static void anim_check_timer_cb(lv_timer_t *timer);
+static void logo_check_timer_cb(lv_timer_t *timer);
 
 /* 空闲超时标志：voice_channel 线程设置，LVGL 定时器轮询并执行 hide */
 static volatile bool g_idle_timeout_pending = false;
@@ -187,29 +190,55 @@ static void goto_next_state(void)
       case STATE_INIT:
         /* 切换到显示logo状态 */
         current_state = STATE_SHOW_LOGO;
+
+        /* 尽早读取UI模式，选择对应的开机logo */
+        g_boot_ui_mode = ui_mode_load();
+        WATCH_DBG_LOG("[LAUNCHER] Boot UI mode: %d (0=expression, 1=watch)",
+                      (int)g_boot_ui_mode);
+
         if (current_obj != NULL)
           {
             lv_obj_del(current_obj);
           }
-        current_obj = boot_logo_init(content_area);
+
+        if (g_boot_ui_mode == UI_MODE_WATCH)
+          {
+            current_obj = watch_boot_logo_init(content_area);
+          }
+        else
+          {
+            current_obj = boot_logo_init(content_area);
+          }
         lv_task_handler();
 
-        lv_timer_t *timer1 = lv_timer_create(state_timer_cb, LOGO_DISPLAY_TIME, NULL);
-        lv_timer_set_repeat_count(timer1, 1);
+        /* 周期性检测logo GIF是否播完，播完立即切换（最长等待 LOGO_DISPLAY_TIME） */
+        logo_wait_ms = 0;
+        lv_timer_create(logo_check_timer_cb, LOGO_CHECK_PERIOD_MS, NULL);
         break;
 
       case STATE_SHOW_LOGO:
         /* 切换到显示动画状态 */
         current_state = STATE_SHOW_ANIM;
 
-        /* 销毁logo并显示动画 */
-        boot_logo_deinit(current_obj);
-        current_obj = boot_animation_init(content_area);
+        /* 销毁logo并显示动画（根据UI模式选择对应的动画） */
+        if (g_boot_ui_mode == UI_MODE_WATCH)
+          {
+            watch_boot_logo_deinit(current_obj);
+            current_obj = watch_boot_animation_init(content_area);
+          }
+        else
+          {
+            boot_logo_deinit(current_obj);
+            current_obj = boot_animation_init(content_area);
+          }
         lv_task_handler();
 
-        /* 动画播放期间后台拉起 ai_agent（初始化 config/LLM/ASR/TTS）
-         * 到动画结束时 ai_agent 大概率已就绪 */
-        agent_autostart();
+        /* 动画播放期间后台拉起 ai_agent（仅表情UI模式需要）
+         * 手表UI模式不需要 ai_agent，跳过以加快开机速度 */
+        if (g_boot_ui_mode == UI_MODE_EXPRESSION)
+          {
+            agent_autostart();
+          }
 
         /* 周期性检测动画是否播完，播完立即切换（最长等待 ANIMATION_DISPLAY_TIME） */
         anim_wait_ms = 0;
@@ -217,19 +246,41 @@ static void goto_next_state(void)
         break;
 
       case STATE_SHOW_ANIM:
-        /* 动画播放完成，切换到表情页面 */
+        /* 动画播放完成，切换到主界面 */
         current_state = STATE_SHOW_CLOCK;
 
-        /* 销毁动画 */
-        boot_animation_deinit(current_obj);
+        /* 销毁动画（根据UI模式选择对应的销毁函数） */
+        if (g_boot_ui_mode == UI_MODE_WATCH)
+          {
+            watch_boot_animation_deinit(current_obj);
+          }
+        else
+          {
+            boot_animation_deinit(current_obj);
+          }
         current_obj = NULL;
 
-        /* [vendor watch UI 已禁用] 恢复到原来的表情页面 */
-        /* watch_switch_to_watch_app(content_area); */
-        current_obj = (lv_obj_t *)watch_expression_page_init(content_area);
+        /* 根据UI模式进入对应的主界面 */
+        WATCH_DBG_LOG("[LAUNCHER] Entering UI mode: %d (0=expression, 1=watch)",
+                      (int)g_boot_ui_mode);
 
-        /* 启动延迟唤醒定时器：周期性检测WiFi和ai_agent是否就绪 */
-        lv_timer_create(deferred_wake_start_timer_cb, 1000, NULL);
+        if (g_boot_ui_mode == UI_MODE_WATCH)
+          {
+            /* 切换到 vendor watch UI */
+            watch_switch_to_watch_app(content_area);
+          }
+        else
+          {
+            /* 默认：表情页面 */
+            current_obj = (lv_obj_t *)watch_expression_page_init(
+              content_area);
+          }
+
+        /* 仅表情UI模式启动延迟唤醒定时器（手表UI不需要语音唤醒） */
+        if (g_boot_ui_mode == UI_MODE_EXPRESSION)
+          {
+            lv_timer_create(deferred_wake_start_timer_cb, 1000, NULL);
+          }
 
         lv_task_handler();
         break;
@@ -245,14 +296,6 @@ static void goto_next_state(void)
 }
 
 /**
- * @brief 状态定时器回调函数
- */
-static void state_timer_cb(lv_timer_t *timer)
-{
-  goto_next_state();
-}
-
-/**
  * @brief 动画播放完成检测定时器回调
  *
  * GIF播完最后一帧（boot_animation_is_finished）后立即切换到表情页面；
@@ -261,7 +304,35 @@ static void state_timer_cb(lv_timer_t *timer)
 static void anim_check_timer_cb(lv_timer_t *timer)
 {
   anim_wait_ms += ANIM_CHECK_PERIOD_MS;
-  if (boot_animation_is_finished() || anim_wait_ms >= ANIMATION_DISPLAY_TIME)
+
+  /* 根据UI模式检查对应的动画是否播放完成 */
+  bool finished = (g_boot_ui_mode == UI_MODE_WATCH)
+    ? watch_boot_animation_is_finished()
+    : boot_animation_is_finished();
+
+  if (finished || anim_wait_ms >= ANIMATION_DISPLAY_TIME)
+    {
+      lv_timer_del(timer);
+      goto_next_state();
+    }
+}
+
+/**
+ * @brief logo播放完成检测定时器回调
+ *
+ * GIF播完最后一帧（boot_logo_is_finished）后立即切换到动画页面；
+ * 超过 LOGO_DISPLAY_TIME 未播完则强制切换，避免一直停留在logo页。
+ */
+static void logo_check_timer_cb(lv_timer_t *timer)
+{
+  logo_wait_ms += LOGO_CHECK_PERIOD_MS;
+
+  /* 根据UI模式检查对应的logo是否播放完成 */
+  bool finished = (g_boot_ui_mode == UI_MODE_WATCH)
+    ? watch_boot_logo_is_finished()
+    : boot_logo_is_finished();
+
+  if (finished || logo_wait_ms >= LOGO_DISPLAY_TIME)
     {
       lv_timer_del(timer);
       goto_next_state();

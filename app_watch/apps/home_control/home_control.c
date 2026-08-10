@@ -13,6 +13,12 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+
+#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
+#  define HC_LOG(fmt, ...) printf("[HomeControl] " fmt "\n", ##__VA_ARGS__)
+#else
+#  define HC_LOG(fmt, ...)
+#endif
 #include <sys/socket.h>
 #include <sys/select.h>
 #include <sys/time.h>
@@ -40,7 +46,7 @@ void home_control_reset_server(void)
     memset(g_server_ip, 0, sizeof(g_server_ip));
     g_server_port = 0;
     g_server_discovered = false;
-    printf("[HomeControl] Server info reset\n");
+    HC_LOG("Server info reset");
 }
 
 /* 设备信息结构 */
@@ -92,7 +98,7 @@ static int send_control_command(int cmd);
 
 static void discover_server_info(void)
 {
-    printf("[HomeControl] Discovering server via UDP broadcast...\n");
+    HC_LOG("Discovering server via UDP broadcast...");
     
     memset(g_server_ip, 0, sizeof(g_server_ip));
     g_server_port = 0;
@@ -111,13 +117,13 @@ static void discover_server_info(void)
     
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (sockfd < 0) {
-        printf("[HomeControl] Failed to create socket\n");
+        HC_LOG("Failed to create socket");
         g_server_discovered = false;
         return;
     }
     
     if (netlib_get_ipv4addr("wlan0", &local_ip) == 0 && local_ip.s_addr != 0) {
-        printf("[HomeControl] Local wlan0 IP: %s\n", inet_ntoa(local_ip));
+        HC_LOG("Local wlan0 IP: %s", inet_ntoa(local_ip));
         
         memset(&local_addr, 0, sizeof(local_addr));
         local_addr.sin_family = AF_INET;
@@ -125,10 +131,10 @@ static void discover_server_info(void)
         local_addr.sin_port = 0;
         
         if (bind(sockfd, (struct sockaddr *)&local_addr, sizeof(local_addr)) < 0) {
-            printf("[HomeControl] Failed to bind to wlan0 interface\n");
+            HC_LOG("Failed to bind to wlan0 interface");
         }
     } else {
-        printf("[HomeControl] Failed to get wlan0 IP address\n");
+        HC_LOG("Failed to get wlan0 IP address");
     }
     
     int broadcast = 1;
@@ -142,7 +148,7 @@ static void discover_server_info(void)
     ret = sendto(sockfd, DISCOVERY_MAGIC, strlen(DISCOVERY_MAGIC), 0,
                  (struct sockaddr *)&broadcast_addr, sizeof(broadcast_addr));
     if (ret < 0) {
-        printf("[HomeControl] Broadcast send failed\n");
+        HC_LOG("Broadcast send failed");
         close(sockfd);
         g_server_discovered = false;
         return;
@@ -155,7 +161,7 @@ static void discover_server_info(void)
     
     ret = select(sockfd + 1, &readfds, NULL, NULL, &timeout);
     if (ret <= 0) {
-        printf("[HomeControl] Discovery timeout or error\n");
+            HC_LOG("Discovery timeout or error");
         close(sockfd);
         g_server_discovered = false;
         return;
@@ -165,7 +171,7 @@ static void discover_server_info(void)
     ret = recvfrom(sockfd, buffer, sizeof(buffer) - 1, 0,
                    (struct sockaddr *)&server_addr, &server_len);
     if (ret < 0) {
-        printf("[HomeControl] Receive response failed\n");
+        HC_LOG("Receive response failed");
         close(sockfd);
         g_server_discovered = false;
         return;
@@ -185,13 +191,13 @@ static void discover_server_info(void)
             g_server_port = atoi(port_start);
             g_server_discovered = true;
             
-            printf("[HomeControl] Server discovered: %s:%d\n", g_server_ip, g_server_port);
+            HC_LOG("Server discovered: %s:%d", g_server_ip, g_server_port);
             close(sockfd);
             return;
         }
     }
     
-    printf("[HomeControl] Invalid response format\n");
+    HC_LOG("Invalid response format");
     close(sockfd);
     g_server_discovered = false;
 }
@@ -199,13 +205,13 @@ static void discover_server_info(void)
 static int send_control_command(int cmd)
 {
     if (!g_server_discovered) {
-        printf("[HomeControl] Server not discovered, cannot send command\n");
+            HC_LOG("Server not discovered, cannot send command");
         return -1;
     }
     
     int sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock < 0) {
-        printf("[HomeControl] Failed to create socket\n");
+        HC_LOG("Failed to create socket");
         return -1;
     }
     
@@ -216,7 +222,7 @@ static int send_control_command(int cmd)
     inet_pton(AF_INET, g_server_ip, &server_addr.sin_addr);
     
     if (connect(sock, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
-        printf("[HomeControl] Failed to connect to %s:%d\n", g_server_ip, g_server_port);
+        HC_LOG("Failed to connect to %s:%d", g_server_ip, g_server_port);
         close(sock);
         return -1;
     }
@@ -227,9 +233,9 @@ static int send_control_command(int cmd)
     int ret = send(sock, cmd_str, strlen(cmd_str), 0);
     
     if (ret < 0) {
-        printf("[HomeControl] Failed to send command %d\n", cmd);
+        HC_LOG("Failed to send command %d", cmd);
     } else {
-        printf("[HomeControl] Sent command %d to %s:%d\n", cmd, g_server_ip, g_server_port);
+        HC_LOG("Sent command %d to %s:%d", cmd, g_server_ip, g_server_port);
     }
     
     close(sock);
@@ -245,7 +251,7 @@ static void setup_home_control_button(lv_obj_t *btn, home_device_t *device);
 
 static void home_control_app_create(void)
 {
-    printf("home_control app clicked\n");
+    HC_LOG("home_control app clicked");
     
     /* 初始化设备列表 */
     init_devices();
@@ -295,7 +301,7 @@ static void home_control_app_create(void)
     // 将页面压入页面栈
     vw_watch_push_page(home_control_base);
 
-    printf("home_control: create complete\n");
+    HC_LOG("home_control: create complete");
 }
 
 static void setup_home_control_button(lv_obj_t *btn, home_device_t *device)
@@ -423,7 +429,7 @@ static void switch_event_handler(lv_event_t *e)
         
         // 检查WiFi是否已连接
         if (!settings_wifi_is_connected()) {
-            printf("[HomeControl] WiFi not connected, please connect WiFi first\n");
+            HC_LOG("WiFi not connected, please connect WiFi first");
             
             // 恢复开关状态
             if (is_on) {
@@ -460,10 +466,10 @@ static void switch_event_handler(lv_event_t *e)
         }
         
         device->status = is_on;
-        printf("Device: %s, status: %s\n", device->name, is_on ? "ON" : "OFF");
+        HC_LOG("Device: %s, status: %s", device->name, is_on ? "ON" : "OFF");
         
         if (!g_server_discovered) {
-            printf("[HomeControl] Server not discovered, discovering...\n");
+            HC_LOG("Server not discovered, discovering...");
             discover_server_info();
         }
         
@@ -480,7 +486,7 @@ static void switch_event_handler(lv_event_t *e)
             }
         }
         
-        printf("[HomeControl] Sending command %d for device %s\n", cmd, device->name);
+        HC_LOG("Sending command %d for device %s", cmd, device->name);
         send_control_command(cmd);
     }
 }
@@ -495,7 +501,7 @@ static void slide_gesture_handler(lv_event_t *e)
 
     switch(code) {
         case LV_EVENT_PRESSED:
-            printf("home_control: pressed\n");
+            HC_LOG("home_control: pressed");
             lv_indev_get_point(lv_indev_active(), &start_point);
             break;
         
@@ -507,11 +513,11 @@ static void slide_gesture_handler(lv_event_t *e)
             int32_t delta_x = end_point.x - start_point.x;
             int32_t delta_y = end_point.y - start_point.y;
 
-            printf("home_control: released, delta_x=%d, delta_y=%d\n", delta_x, delta_y);
+            HC_LOG("home_control: released, delta_x=%d, delta_y=%d", delta_x, delta_y);
 
             // 右滑退出（横向移动超过50px且大于纵向移动）
             if(delta_x > 50 && abs(delta_x) > abs(delta_y)) {
-                printf("home_control: right swipe, exit\n");
+                HC_LOG("home_control: right swipe, exit");
                 if(home_control_base != NULL) {
                     // 将页面从页面栈弹出
                     vw_watch_pop_page(home_control_base);

@@ -25,7 +25,7 @@
 #include "esp32s3_gpio.h"
 
 #include "watch_button.h"
-#include "../settings/settings.h"
+/* 表情UI设置界面已移除，不再需要 settings.h */
 
 /* ── Watch expression / voice externs (flat build) ──────────── */
 extern int  watch_expression_page_set_face(const char* face_id, int duration_ms);
@@ -95,7 +95,7 @@ struct button_context_s
 static struct button_context_s g_boot_button;
 static struct button_context_s g_pwr_button;
 static lv_timer_t *g_button_timer = NULL;
-static bool g_settings_active = false;  /* 跟踪设置界面是否打开 */
+/* static bool g_settings_active = false; */  /* 表情UI设置界面已禁用 */
 static bool g_mic_muted = false;        /* 禁麦状态：false=开麦, true=禁麦 */
 
 /****************************************************************************
@@ -255,8 +255,9 @@ static void handle_boot_short_press(void)
 
 static void handle_boot_long_press(void)
 {
-  BTN_LOG("BOOT long press detected");
-
+  BTN_LOG("BOOT long press detected (settings disabled)");
+  /* 表情UI设置界面已禁用，不再通过按键调出设置 */
+#if 0
   if (settings_is_open())
     {
       settings_app_close();
@@ -269,6 +270,7 @@ static void handle_boot_long_press(void)
       g_settings_active = true;
       BTN_LOG("Settings opened");
     }
+#endif
 }
 
 /****************************************************************************
@@ -282,7 +284,8 @@ static void handle_pwr_short_press(void)
 {
   BTN_LOG("PWR short press detected");
 
-  /* 如果设置界面打开，先关闭设置 */
+  /* 表情UI设置界面已禁用 */
+#if 0
   if (g_settings_active && settings_is_open())
     {
       settings_app_close();
@@ -290,6 +293,7 @@ static void handle_pwr_short_press(void)
       BTN_LOG("Settings closed by PWR press");
       return;
     }
+#endif
 
   /* 其他情况：不做额外处理，页面栈由触摸手势处理 */
 }

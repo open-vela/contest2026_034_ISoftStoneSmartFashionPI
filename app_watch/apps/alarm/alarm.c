@@ -12,6 +12,12 @@
 #include <../../../../apps/graphics/lvgl/lvgl/src/drivers/nuttx/lv_nuttx_touchscreen.h>
 #include <nuttx/lcd/co5300.h>
 
+#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
+#  define ALARM_LOG(fmt, ...) printf("[ALARM] " fmt "\n", ##__VA_ARGS__)
+#else
+#  define ALARM_LOG(fmt, ...)
+#endif
+
 
 
 // 闹钟数据文件路径
@@ -153,7 +159,7 @@ static void alarm_switch_event_cb(lv_event_t *e)
     
     if (index >= 0 && index < alarm_count) {
         alarms[index].enabled = lv_obj_has_state(switch_obj, LV_STATE_CHECKED);
-        printf("Alarm %d: %s\n", index, alarms[index].enabled ? "enabled" : "disabled");
+        ALARM_LOG("Alarm %d: %s", index, alarms[index].enabled ? "enabled" : "disabled");
     }
 }
 
@@ -542,7 +548,7 @@ static void confirm_btn_event_cb(lv_event_t *e)
             memcpy(alarms[alarm_count].repeat, repeat, sizeof(repeat));
             alarms[alarm_count].enabled = 1;
             alarm_count++;
-            printf("add new alarm: %d:%d, repeat:%s,enabled:%d,alarm_count:%d\n",hour, minute, repeat, alarms[alarm_count-1].enabled, alarm_count);
+            ALARM_LOG("add new alarm: %d:%d, repeat:%s,enabled:%d,alarm_count:%d",hour, minute, repeat, alarms[alarm_count-1].enabled, alarm_count);
             // 保存到文件
             alarm_save_to_file();
         }
@@ -554,7 +560,7 @@ static void confirm_btn_event_cb(lv_event_t *e)
             memcpy(alarms[current_edit_index].repeat, repeat, sizeof(repeat));
             // 保存到文件
             alarm_save_to_file();
-            printf("modify alarm: %d:%d, repeat:%s,enabled:%d,alarm_count:%d,current_edit_index%d\n",hour, minute, repeat, alarms[current_edit_index].enabled, alarm_count,current_edit_index);
+            ALARM_LOG("modify alarm: %d:%d, repeat:%s,enabled:%d,alarm_count:%d,current_edit_index%d",hour, minute, repeat, alarms[current_edit_index].enabled, alarm_count,current_edit_index);
         }
     }
 
@@ -589,7 +595,7 @@ static void cancel_btn_event_cb(lv_event_t *e)
             alarms[i] = alarms[i + 1];
         }
         alarm_count--;
-        printf("Alarm deleted, count: %d\n", alarm_count);
+        ALARM_LOG("Alarm deleted, count: %d", alarm_count);
         // 保存到文件
         alarm_save_to_file();
     }
@@ -699,7 +705,7 @@ static void slide_gesture_edit_handler(lv_event_t *e)
 static void alarm_ring_create(int index)
 {
     if (alarm_ring_base != NULL) {
-        printf("alarm_ring_base already exists, deleting old one\n");
+        ALARM_LOG("alarm_ring_base already exists, deleting old one");
         lv_obj_del(alarm_ring_base);
         alarm_ring_base = NULL;
     }
@@ -742,11 +748,11 @@ static void alarm_ring_create(int index)
         time_t now = time(NULL);
         struct tm *t = localtime(&now);
         snprintf(time_str, sizeof(time_str), "%02d:%02d", t->tm_hour, t->tm_min);
-        printf("Snooze alarm ring at %02d:%02d (current time)\n", t->tm_hour, t->tm_min);
+        ALARM_LOG("Snooze alarm ring at %02d:%02d (current time)", t->tm_hour, t->tm_min);
     } else {
         // 正常闹钟：显示闹钟设置时间
         snprintf(time_str, sizeof(time_str), "%02d:%02d", alarms[index].hour, alarms[index].minute);
-        printf("Alarm ring at %02d:%02d (alarm time)\n", alarms[index].hour, alarms[index].minute);
+        ALARM_LOG("Alarm ring at %02d:%02d (alarm time)", alarms[index].hour, alarms[index].minute);
     }
     lv_obj_t *time_label = lv_label_create(alarm_ring_base);
     lv_label_set_text(time_label, time_str);
@@ -829,7 +835,7 @@ static void snooze_timer_cb(lv_timer_t *timer)
             snooze_alarms[i].is_snooze = false;
 
             // 触发延时闹钟
-            printf("Snooze alarm triggered for alarm index %d\n", alarm_index);
+            ALARM_LOG("Snooze alarm triggered for alarm index %d", alarm_index);
             alarm_ring_create(alarm_index);
 
             // 只触发一个，下次定时器回调再检查其他的
@@ -850,7 +856,7 @@ static void snooze_timer_cb(lv_timer_t *timer)
         lv_timer_t *timer_to_del = snooze_timer;
         snooze_timer = NULL;
         lv_timer_del(timer_to_del);
-        printf("No active snooze alarms, timer stopped\n");
+        ALARM_LOG("No active snooze alarms, timer stopped");
     }
 }
 
@@ -865,7 +871,7 @@ static void start_snooze_alarm(int alarm_index)
             // 更新延时时间
             snooze_alarms[i].trigger_time = time(NULL) + 300; // 5分钟后
             snooze_alarms[i].is_snooze = true;
-            printf("Updated snooze alarm for alarm index %d, trigger in 5 minutes (slot %d)\n", alarm_index, i);
+            ALARM_LOG("Updated snooze alarm for alarm index %d, trigger in 5 minutes (slot %d)", alarm_index, i);
 
             // 确保定时器存在
             if (snooze_timer == NULL) {
@@ -885,7 +891,7 @@ static void start_snooze_alarm(int alarm_index)
     }
 
     if (free_slot == -1) {
-        printf("No free slot for snooze alarm\n");
+        ALARM_LOG("No free slot for snooze alarm");
         return;
     }
 
@@ -895,7 +901,7 @@ static void start_snooze_alarm(int alarm_index)
     snooze_alarms[free_slot].active = true;
     snooze_alarms[free_slot].is_snooze = true;
 
-    printf("Starting snooze alarm for alarm index %d, trigger in 5 minutes (slot %d)\n", alarm_index, free_slot);
+    ALARM_LOG("Starting snooze alarm for alarm index %d, trigger in 5 minutes (slot %d)", alarm_index, free_slot);
 
     // 创建定时器，每秒检查一次（如果还没有创建）
     if (snooze_timer == NULL) {
@@ -922,7 +928,7 @@ static void stop_snooze_alarm(void)
         lv_timer_del(timer_to_del);
     }
 
-    printf("Stopped all snooze alarms\n");
+    ALARM_LOG("Stopped all snooze alarms");
 }
 
 /**
@@ -938,11 +944,11 @@ static void snooze_btn_event_cb(lv_event_t *e)
      // 防止重复处理
     static bool is_processing = false;
     if (is_processing) {
-        printf("Already processing snooze, skip\n");
+        ALARM_LOG("Already processing snooze, skip");
         return;
     }
     is_processing = true;
-    printf("Alarm snooze 5mins button click.\n");
+    ALARM_LOG("Alarm snooze 5mins button click.");
     int ring_index = current_ring_index;
     // 退出页面
     if (alarm_ring_base != NULL) {
@@ -956,7 +962,7 @@ static void snooze_btn_event_cb(lv_event_t *e)
     if (ring_index >= 0 && ring_index < alarm_count) {
         // 启动延时闹钟
         start_snooze_alarm(ring_index);
-        printf("Alarm snoozed for 5 minutes\n");
+        ALARM_LOG("Alarm snoozed for 5 minutes");
     }
 
     is_processing = false;
@@ -973,11 +979,11 @@ static void close_btn_event_cb(lv_event_t *e)
     }
     static bool is_processing = false;
     if (is_processing) {
-        printf("Already processing close, skip\n");
+        ALARM_LOG("Already processing close, skip");
         return;
     }
     is_processing = true;
-    printf("Alarm closed button click.\n");
+    ALARM_LOG("Alarm closed button click.");
 
     // 关闭闹钟
     if (current_ring_index >= 0 && current_ring_index < alarm_count) {
@@ -998,7 +1004,7 @@ static void close_btn_event_cb(lv_event_t *e)
                 update_alarm_list(alarm_list);
             }
         }
-        printf("Alarm closed\n");
+        ALARM_LOG("Alarm closed");
 
         // 只停止当前闹钟的延时（不影响其他闹钟的延时）
         for (int i = 0; i < MAX_SNOOZE_ALARMS; i++) {
@@ -1007,7 +1013,7 @@ static void close_btn_event_cb(lv_event_t *e)
                 snooze_alarms[i].alarm_index = -1;
                 snooze_alarms[i].trigger_time = 0;
                 snooze_alarms[i].is_snooze = false;
-                printf("Stopped snooze for alarm index %d (slot %d)\n", current_ring_index, i);
+                ALARM_LOG("Stopped snooze for alarm index %d (slot %d)", current_ring_index, i);
                 break;
             }
         }
@@ -1049,7 +1055,7 @@ static void slide_gesture_ring_handler(lv_event_t *e)
                 if(delta_x > 50 && abs(delta_x) > abs(delta_y)) {
                     static bool is_processing = false;
                     if (is_processing) {
-                        printf("Already processing swipe, skip\n");
+                        ALARM_LOG("Already processing swipe, skip");
                         ring_is_dragging = false;
                         return;
                     }
@@ -1073,7 +1079,7 @@ static void slide_gesture_ring_handler(lv_event_t *e)
                                 update_alarm_list(alarm_list);
                             }
                         }
-                        printf("Alarm closed via swipe\n");
+                        ALARM_LOG("Alarm closed via swipe");
 
                         // 只停止当前闹钟的延时（不影响其他闹钟的延时）
                         for (int i = 0; i < MAX_SNOOZE_ALARMS; i++) {
@@ -1082,7 +1088,7 @@ static void slide_gesture_ring_handler(lv_event_t *e)
                                 snooze_alarms[i].alarm_index = -1;
                                 snooze_alarms[i].trigger_time = 0;
                                 snooze_alarms[i].is_snooze = false;
-                                printf("Stopped snooze for alarm index %d (slot %d)\n", current_ring_index, i);
+                                ALARM_LOG("Stopped snooze for alarm index %d (slot %d)", current_ring_index, i);
                                 break;
                             }
                         }
@@ -1109,7 +1115,7 @@ static void slide_gesture_ring_handler(lv_event_t *e)
 
 void alarm_app_click_callback(lv_event_t *e)
 {
-    printf("alarm_app_click_callback\n");
+    ALARM_LOG("alarm_app_click_callback");
     alarm_list_create();
     // alarm_ring_create(1);
 }
@@ -1129,14 +1135,14 @@ void alarm_save_to_file(void)
 {
     int fd = open(ALARM_DATA_FILE, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd < 0) {
-        printf("Failed to open alarm data file for writing\n");
+        ALARM_LOG("Failed to open alarm data file for writing");
         return;
     }
 
     // 先写入闹钟数量
     ssize_t ret = write(fd, &alarm_count, sizeof(int));
     if (ret != sizeof(int)) {
-        printf("Failed to write alarm count\n");
+        ALARM_LOG("Failed to write alarm count");
         close(fd);
         return;
     }
@@ -1144,9 +1150,9 @@ void alarm_save_to_file(void)
     // 写入所有闹钟数据
     ret = write(fd, alarms, sizeof(alarm_t) * alarm_count);
     if (ret != sizeof(alarm_t) * alarm_count) {
-        printf("Failed to write alarm data\n");
+        ALARM_LOG("Failed to write alarm data");
     } else {
-        printf("Saved %d alarms to file\n", alarm_count);
+        ALARM_LOG("Saved %d alarms to file", alarm_count);
     }
 
     close(fd);
@@ -1159,7 +1165,7 @@ void alarm_load_from_file(void)
 {
     int fd = open(ALARM_DATA_FILE, O_RDONLY);
     if (fd < 0) {
-        printf("Alarm data file not found, using default\n");
+        ALARM_LOG("Alarm data file not found, using default");
         alarm_count = 0;
         return;
     }
@@ -1167,7 +1173,7 @@ void alarm_load_from_file(void)
     // 读取闹钟数量
     ssize_t ret = read(fd, &alarm_count, sizeof(int));
     if (ret != sizeof(int) || alarm_count < 0 || alarm_count > WATCH_MAX_ALARMS) {
-        printf("Invalid alarm count, using default\n");
+        ALARM_LOG("Invalid alarm count, using default");
         alarm_count = 0;
         close(fd);
         return;
@@ -1176,10 +1182,10 @@ void alarm_load_from_file(void)
     // 读取所有闹钟数据
     ret = read(fd, alarms, sizeof(alarm_t) * alarm_count);
     if (ret != sizeof(alarm_t) * alarm_count) {
-        printf("Failed to read alarm data\n");
+        ALARM_LOG("Failed to read alarm data");
         alarm_count = 0;
     } else {
-        printf("Loaded %d alarms from file\n", alarm_count);
+        ALARM_LOG("Loaded %d alarms from file", alarm_count);
     }
 
     close(fd);
@@ -1326,7 +1332,7 @@ int64_t getSetTimer(void)
 void alarm_service_init(void)
 {
     if (alarm_service_initialized) {
-        printf("Alarm service already initialized\n");
+        ALARM_LOG("Alarm service already initialized");
         return;
     }
 
@@ -1336,12 +1342,12 @@ void alarm_service_init(void)
     // 创建闹钟检测定时器（每秒检测一次）
     alarm_check_timer = lv_timer_create(alarm_check_timer_cb, 1000, NULL);
     if (alarm_check_timer == NULL) {
-        printf("Failed to create alarm check timer\n");
+        ALARM_LOG("Failed to create alarm check timer");
         return;
     }
 
     alarm_service_initialized = true;
-    printf("Alarm service initialized\n");
+    ALARM_LOG("Alarm service initialized");
 }
 
 /**
@@ -1366,7 +1372,7 @@ void alarm_service_deinit(void)
     alarm_save_to_file();
 
     alarm_service_initialized = false;
-    printf("Alarm service deinitialized\n");
+    ALARM_LOG("Alarm service deinitialized");
 }
 
 

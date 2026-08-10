@@ -7,6 +7,12 @@
 #include <nuttx/power/axp2101.h>
 #include <nuttx/arch.h>
 
+#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
+#  define SETTINGS_LOG(fmt, ...) printf("[SETTINGS] " fmt "\n", ##__VA_ARGS__)
+#else
+#  define SETTINGS_LOG(fmt, ...)
+#endif
+
 
 static lv_obj_t *system_base = NULL;
 static lv_obj_t *poweroff_btn = NULL;
@@ -20,7 +26,7 @@ static void poweroff_cb(lv_event_t *e)
 
     if (code == LV_EVENT_CLICKED)
     {
-        printf("[Settings] Power off system\n");
+        SETTINGS_LOG("Power off system");
         axp2101_power_off();
     }
 }
@@ -31,7 +37,7 @@ static void reboot_cb(lv_event_t *e)
 
     if (code == LV_EVENT_CLICKED)
     {
-        printf("[Settings] Reboot system\n");
+        SETTINGS_LOG("Reboot system");
         axp2101_power_reset();
     }
 }

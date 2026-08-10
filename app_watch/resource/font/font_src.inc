@@ -1,2 +1,1 @@
-FONT_SRC(AlibabaPuHuiTi_3_55_Regular)
 FONT_SRC(MiSans_Regular)

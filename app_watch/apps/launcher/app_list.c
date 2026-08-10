@@ -13,11 +13,15 @@
 #include "../alarm/alarm.h"
 #include "../sports/sports.h"
 #include "../sos/sos.h"
-/* xiaozhi_ai excluded from build - conflicts with ai_agent */
-/* #include "../xiaozhi_ai/xiaozhi_ai.h" */
+#include "../xiaozhi_ai/xiaozhi_ai.h" 
 #include "launcher.h"
-/* weather excluded from build - too much DRAM */
-/* #include "../weather/weather.h" */
+#include "../weather/weather.h"
+
+#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
+#  define APP_LIST_LOG(fmt, ...) printf("[APP_LIST] " fmt "\n", ##__VA_ARGS__)
+#else
+#  define APP_LIST_LOG(fmt, ...)
+#endif
 
 
 
@@ -68,7 +72,7 @@ static void app_icon_click_cb(lv_event_t *e)
         /* 查找被点击的应用 */
         for (int i = 0; i < app_count; i++) {
             if (obj == app_list[i].container || obj == app_list[i].icon) {
-                printf("App clicked: %s\n", app_list[i].name);
+                APP_LIST_LOG("App clicked: %s", app_list[i].name);
                 
                 /* 调用应用的点击回调 */
                 if (app_list[i].click_cb) {
@@ -142,7 +146,7 @@ static void __attribute__((unused)) create_page_indicators(lv_obj_t *parent)
  */
 static void switch_to_clock_display(lv_obj_t *cont)
 {
-    printf("Right swipe: returning to dial\n");
+    APP_LIST_LOG("Right swipe: returning to dial");
     
     /* 先显示隐藏的表盘 */
     dial_show();
@@ -164,7 +168,7 @@ static void handle_scroll_event(lv_obj_t *cont)
     // lv_coord_t w = lv_obj_get_content_width(cont);
     // lv_coord_t w_visible = lv_obj_get_width(cont);
     
-    // printf("scroll x: %d, w: %d, w_visible: %d\n", x, w, w_visible);
+    // APP_LIST_LOG("scroll x: %d, w: %d, w_visible: %d", x, w, w_visible);
 
     /* 计算当前页面索引 */
     int page_width = WATCH_SCREEN_WIDTH;
@@ -319,13 +323,12 @@ lv_obj_t *app_tile_setup(lv_obj_t *parent)
     /* 第2页应用 */
     register_app("运动", vw_resource_get_img("icon_app_sport"), sport_app_click_callback);
     register_app("闹钟", vw_resource_get_img("icon_app_alarm"), alarm_app_click_callback);
-    /* register_app("天气", vw_resource_get_img("icon_app_weather"), weather_app_click_callback); */  /* weather excluded */
+    register_app("天气", vw_resource_get_img("icon_app_weather"), weather_app_click_callback);
     register_app("秒表", vw_resource_get_img("icon_app_stopwatch"), stopwatch_app_click_callback);
 
     /* 第3页应用 */
     register_app("日历", vw_resource_get_img("icon_app_calendar"), calendar_app_click_callback);
-    /* xiaozhi_ai excluded from build */
-    /* register_app("小智AI", vw_resource_get_img("icon_app_ai"), xiaozhi_ai_app_click_callback); */
+    register_app("小智AI", vw_resource_get_img("icon_app_ai"), xiaozhi_ai_app_click_callback);
     /* 创建应用图标 */
     for (int i = 0; i < app_count; i++) {
         int page_index = i / APPS_PER_PAGE;
@@ -346,7 +349,8 @@ lv_obj_t *app_tile_setup(lv_obj_t *parent)
 void register_app(const char *name, const lv_image_dsc_t *icon_src, void (*click_cb)(lv_event_t *e))
 {
     if (app_count >= MAX_APPS) {
-        printf("Max apps reached!\n");
+        APP_LIST_LOG("Max apps reached!");
+
         return;
     }
 

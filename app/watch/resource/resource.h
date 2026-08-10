@@ -69,11 +69,34 @@ const void* watch_resource_get_img_expression(int index);
 int watch_resource_get_expression_count(void);
 
 /**
- * Get the embedded bootlogo GIF image descriptor.
- * The returned pointer is suitable for lv_gif_set_src() directly.
+ * Get the embedded bootlogo GIF image descriptor (legacy, kept for compatibility).
  * @return A pointer to lv_image_dsc_t containing raw GIF data.
  */
 const void* watch_resource_get_bootlogo_gif(void);
+
+/**
+ * Get the expression UI boot logo GIF.
+ * @return A pointer to lv_image_dsc_t containing raw GIF data.
+ */
+const void* watch_resource_get_expr_logo_gif(void);
+
+/**
+ * Get the expression UI boot animation GIF.
+ * @return A pointer to lv_image_dsc_t containing raw GIF data.
+ */
+const void* watch_resource_get_expr_anim_gif(void);
+
+/**
+ * Get the watch UI boot logo GIF.
+ * @return A pointer to lv_image_dsc_t containing raw GIF data.
+ */
+const void* watch_resource_get_watch_logo_gif(void);
+
+/**
+ * Get the watch UI boot animation GIF.
+ * @return A pointer to lv_image_dsc_t containing raw GIF data.
+ */
+const void* watch_resource_get_watch_anim_gif(void);
 
 /**
  * Check if the SD card is mounted and accessible.

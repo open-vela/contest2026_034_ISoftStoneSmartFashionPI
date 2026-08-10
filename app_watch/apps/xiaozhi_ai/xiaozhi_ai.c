@@ -17,6 +17,12 @@
 #include <string.h>
 #include <unistd.h>
 
+#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
+#  define XIAOZHI_LOG(fmt, ...) printf(fmt, ##__VA_ARGS__)
+#else
+#  define XIAOZHI_LOG(fmt, ...)
+#endif
+
 /* ========== UI状态枚举 ========== */
 typedef enum {
     XIAOZHI_STATE_IDLE = 0,        /**< 待命，显示问候语 */
@@ -42,7 +48,7 @@ static lv_obj_t *xiaozhi_back_btn = NULL;
 
 /* ========== 状态追踪 ========== */
 static xiaozhi_ui_state_t g_xiaozhi_state = XIAOZHI_STATE_IDLE;
-static char g_error_message[128] = {0};
+/* g_error_message removed - unused, saves 128B BSS */
 static lv_timer_t *g_connect_timer = NULL;
 static lv_timer_t *g_poll_timer = NULL;
 
@@ -100,17 +106,17 @@ static void xiaozhi_update_face_emotion(int mouth_type)
 {
     if (!xiaozhi_face_mouth) return;
 
-    static lv_point_precise_t smile_pts[] = {
+    static const lv_point_precise_t smile_pts[] = {
         {30, 72}, {40, 78}, {50, 82}, {60, 84}, {70, 82}, {80, 78}, {90, 72}
     };
-    static lv_point_precise_t neutral_pts[] = {
+    static const lv_point_precise_t neutral_pts[] = {
         {35, 80}, {50, 80}, {60, 80}, {70, 80}, {85, 80}
     };
-    static lv_point_precise_t frown_pts[] = {
+    static const lv_point_precise_t frown_pts[] = {
         {30, 84}, {40, 78}, {50, 74}, {60, 72}, {70, 74}, {80, 78}, {90, 84}
     };
 
-    lv_point_precise_t *pts;
+    const lv_point_precise_t *pts;
     uint32_t pt_count;
 
     switch (mouth_type) {
@@ -316,7 +322,7 @@ static void connect_task_cb(lv_timer_t *timer)
         int len = xiaozhi_ai_ws_receive(buf, sizeof(buf) - 1, 3000);
         if (len > 0) {
             buf[len] = '\0';
-            printf("[XIAOZHI] Server response: %s\n", buf);
+            XIAOZHI_LOG("[XIAOZHI] Server response: %s\n", buf);
 
             /* 尝试提取type字段 */
             char *type_start = strstr(buf, "\"type\"");
@@ -365,7 +371,7 @@ static void poll_task_cb(lv_timer_t *timer)
 
     if (len > 0) {
         buf[len] = '\0';
-        printf("[XIAOZHI] Received: %s\n", buf);
+        XIAOZHI_LOG("[XIAOZHI] Received: %s\n", buf);
 
         /* 简单JSON解析：提取text字段 */
         char *text_start = strstr(buf, "\"text\"");
@@ -443,7 +449,7 @@ static void action_btn_click_handler(lv_event_t *e)
 
 static void back_btn_click_handler(lv_event_t *e)
 {
-    printf("xiaozhi_ai: back button pressed\n");
+    XIAOZHI_LOG("xiaozhi_ai: back button pressed\n");
 
     /* 停止所有定时器 */
     if (g_connect_timer) {
@@ -468,7 +474,7 @@ static void back_btn_click_handler(lv_event_t *e)
 
 static void menu_btn_click_handler(lv_event_t *e)
 {
-    printf("xiaozhi_ai: menu button pressed\n");
+    XIAOZHI_LOG("xiaozhi_ai: menu button pressed\n");
     /* 预留菜单功能 */
 }
 
@@ -493,7 +499,7 @@ static void slide_gesture_handler(lv_event_t *e)
 
         /* 右滑退出 */
         if (delta_x > 50 && abs(delta_x) > abs(delta_y)) {
-            printf("xiaozhi_ai: right swipe, exit\n");
+            XIAOZHI_LOG("xiaozhi_ai: right swipe, exit\n");
             back_btn_click_handler(NULL);
         }
         break;
@@ -508,7 +514,7 @@ static void slide_gesture_handler(lv_event_t *e)
 
 static void xiaozhi_page_deleted_cb(lv_event_t *e)
 {
-    printf("xiaozhi_ai: page deleted\n");
+    XIAOZHI_LOG("xiaozhi_ai: page deleted\n");
 
     /* 清理定时器 */
     if (g_connect_timer) {
@@ -543,7 +549,7 @@ static void xiaozhi_page_deleted_cb(lv_event_t *e)
 
 static void xiaozhi_ai_page_create(void)
 {
-    printf("xiaozhi_ai: creating page\n");
+    XIAOZHI_LOG("xiaozhi_ai: creating page\n");
 
     init_button_styles();
 
@@ -720,7 +726,7 @@ static void xiaozhi_ai_page_create(void)
     g_xiaozhi_state = XIAOZHI_STATE_IDLE;
     xiaozhi_update_ui_state(XIAOZHI_STATE_IDLE, NULL);
 
-    printf("xiaozhi_ai: page created\n");
+    XIAOZHI_LOG("xiaozhi_ai: page created\n");
 }
 
 /* ========== 公开入口 ========== */

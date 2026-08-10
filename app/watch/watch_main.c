@@ -30,7 +30,7 @@
 
 /* 包含launcher模块（开机logo + 开机动画） */
 #include "apps/launcher/launcher.h"
-#include "apps/settings/settings_wifi.h"
+#include "apps/settings/settings_wifi.h"  /* 使用手表UI的WiFi设置 */
 #include "apps/boot/watch_button.h"
 #include "resource/resource.h"
 

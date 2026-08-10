@@ -10,7 +10,8 @@ if(CONFIG_EXAMPLES_CONTEST2026_WATCH_BOOT)
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/boot/*.c
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/launcher/*.c
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/common/*.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/apps/settings/*.c
+    # 表情UI设置界面已禁用，使用手表UI的设置界面（app_watch/apps/settings/）
+    # ${CMAKE_CURRENT_SOURCE_DIR}/apps/settings/*.c
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/home_control/*.c
     ${CMAKE_CURRENT_SOURCE_DIR}/apps/volume_control/*.c
   )
@@ -50,7 +51,8 @@ if(CONFIG_EXAMPLES_CONTEST2026_WATCH_BOOT)
     ${VENDOR_WATCH_DIR}/apps/sos/*.c
     ${VENDOR_WATCH_DIR}/apps/sports/*.c
     ${VENDOR_WATCH_DIR}/apps/stopwatch/*.c
-    # weather excluded: ${VENDOR_WATCH_DIR}/apps/weather/*.c
+    ${VENDOR_WATCH_DIR}/apps/weather/*.c
+    ${VENDOR_WATCH_DIR}/apps/xiaozhi_ai/*.c
   )
 
   # app_watch resource manager + generated assets
@@ -59,6 +61,9 @@ if(CONFIG_EXAMPLES_CONTEST2026_WATCH_BOOT)
   )
   file(GLOB VW_IMG_ASSETS ${VENDOR_WATCH_DIR}/resource/image/generated/*.c)
   file(GLOB VW_FONT_ASSETS ${VENDOR_WATCH_DIR}/resource/font/generated/*.c)
+  # Exclude AlibabaPuHuiTi font (removed to save ~163KB DRAM)
+  # Exclude duplicate MiSans_Regular.c (already provided by app/watch/resource/font/generated/)
+  list(FILTER VW_FONT_ASSETS EXCLUDE REGEX ".*AlibabaPuHuiTi_3_55_Regular\.c$|.*MiSans_Regular\.c$")
   file(GLOB VW_PWR_JPG_ASSETS ${VENDOR_WATCH_DIR}/resource/power_jpg/generated/*.c)
   file(GLOB VW_PWR_PNG_ASSETS ${VENDOR_WATCH_DIR}/resource/power_png/generated/*.c)
   list(APPEND VW_RESOURCE_CSRCS ${VW_IMG_ASSETS} ${VW_FONT_ASSETS} ${VW_PWR_JPG_ASSETS} ${VW_PWR_PNG_ASSETS})
