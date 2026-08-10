@@ -1,0 +1,98 @@
+/****************************************************************************
+ * apps/watch/apps/boot/watch_boot_logo.c
+ *
+ * 手表UI 开机Logo — 播放 GIF 动画
+ *
+ ****************************************************************************/
+
+/****************************************************************************
+ * Included Files
+ ****************************************************************************/
+
+#include <nuttx/config.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+#include "watch_boot_logo.h"
+#include "../../resource/resource.h"
+#include "../common/watch_pages.h"
+
+/* 调试打印开关 */
+#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
+#  define WATCH_BOOT_LOG(fmt, ...) printf(fmt "\n", ##__VA_ARGS__)
+#else
+#  define WATCH_BOOT_LOG(fmt, ...)
+#endif
+
+/****************************************************************************
+ * Private Data
+ ****************************************************************************/
+
+static lv_obj_t *s_watch_logo_gif_obj = NULL;
+static bool s_watch_logo_finished = false;
+
+/****************************************************************************
+ * Private Functions
+ ****************************************************************************/
+
+static void watch_logo_gif_ready_cb(lv_event_t *e)
+{
+  (void)e;
+  s_watch_logo_finished = true;
+  if (s_watch_logo_gif_obj) {
+    lv_gif_pause(s_watch_logo_gif_obj);
+  }
+  WATCH_BOOT_LOG("[WATCH_BOOT] Logo GIF finished");
+}
+
+/****************************************************************************
+ * Public Functions
+ ****************************************************************************/
+
+lv_obj_t *watch_boot_logo_init(lv_obj_t *parent)
+{
+  WATCH_BOOT_LOG("[WATCH_BOOT] watch_boot_logo_init");
+
+  /* 创建黑色背景容器 */
+  lv_obj_t *bg = lv_obj_create(parent);
+  lv_obj_set_size(bg, WATCH_SCREEN_WIDTH, WATCH_SCREEN_HEIGHT);
+  lv_obj_set_style_bg_color(bg, lv_color_hex(0x000000), 0);
+  lv_obj_set_style_border_width(bg, 0, 0);
+  lv_obj_set_style_radius(bg, 0, 0);
+  lv_obj_center(bg);
+  lv_obj_clear_flag(bg, LV_OBJ_FLAG_SCROLLABLE);
+
+  /* 创建 GIF 控件播放手表UI开机 Logo */
+  s_watch_logo_gif_obj = lv_gif_create(bg);
+  lv_obj_center(s_watch_logo_gif_obj);
+  lv_obj_add_event_cb(s_watch_logo_gif_obj, watch_logo_gif_ready_cb,
+                      LV_EVENT_READY, NULL);
+
+  const void *gif_src = watch_resource_get_watch_logo_gif();
+  if (gif_src) {
+    lv_gif_set_src(s_watch_logo_gif_obj, gif_src);
+  } else {
+    WATCH_BOOT_LOG("[WATCH_BOOT] watch_boot_logo_init: watch logo gif data is NULL");
+  }
+
+  s_watch_logo_finished = false;
+  return bg;
+}
+
+bool watch_boot_logo_is_finished(void)
+{
+  return s_watch_logo_finished;
+}
+
+void watch_boot_logo_deinit(lv_obj_t *logo_obj)
+{
+  if (s_watch_logo_gif_obj) {
+    lv_gif_pause(s_watch_logo_gif_obj);
+    s_watch_logo_gif_obj = NULL;
+  }
+  if (logo_obj) {
+    lv_obj_del(logo_obj);
+  }
+  s_watch_logo_finished = false;
+}

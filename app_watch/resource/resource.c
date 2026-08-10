@@ -15,7 +15,6 @@
 #include "power_jpg/generated/power_jpg_assets.h"
 #include "power_png/generated/power_png_assets.h"
 #include "font/generated/MiSans_Regular.h"
-#include "font/generated/AlibabaPuHuiTi_3_55_Regular.h"
 
 /*********************
  *      DEFINES
@@ -27,10 +26,8 @@
 #define IMG_POWER_JPG_BASE_PATH "/power_jpg/"
 #define IMG_POWER_BASE_PATH "/power_png/"
 
-/* 调试开关 - 编译时开启 */
-#define RESOURCE_DEBUG 1
-
-#if RESOURCE_DEBUG
+/* 调试开关 - 受 CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG 控制 */
+#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
 #define RES_LOG(fmt, ...) printf("[RESOURCE] " fmt "\n", ##__VA_ARGS__)
 #else
 #define RES_LOG(fmt, ...)
@@ -103,7 +100,6 @@ typedef struct {
 
 static const font_data_t g_font_data_map[] = {
     { "MiSans-Regular", MiSans_Regular_ttf_data, MiSans_Regular_ttf_size },
-    { "AlibabaPuHuiTi-3-55-Regular", AlibabaPuHuiTi_3_55_Regular_ttf_data, AlibabaPuHuiTi_3_55_Regular_ttf_size },
 };
 
 
@@ -153,18 +149,18 @@ void vw_resource_init(void)
             if (font) {                                                                               \
                 g_font_resource_map[font_index].key = #NAME "_" #SIZE;                                \
                 g_font_resource_map[font_index].font = font;                                          \
-                printf("loaded font: %s_%d\n", #NAME, SIZE);                                           \
+                RES_LOG("loaded font: %s_%d", #NAME, SIZE);                                           \
                 font_index++;                                                                         \
             } else {                                                                                  \
-                printf("font_" #NAME "_" #SIZE " create failed\n");                                  \
+                RES_LOG("font_" #NAME "_" #SIZE " create failed");                                  \
             }                                                                                         \
         } else {                                                                                      \
-            printf("font_" #NAME "_" #SIZE " data not found\n");                                     \
+            RES_LOG("font_" #NAME "_" #SIZE " data not found");                                     \
         }                                                                                             \
     } while (0);
 #include "font/font.inc"
 #undef FONT_DEF
-    printf("create %d fonts\n", font_index);
+    RES_LOG("create %d fonts", font_index);
 
 }
 
@@ -183,13 +179,13 @@ const lv_font_t* vw_resource_get_font(const char* key)
      */
     const char *last_underscore = strrchr(key, '_');
     if (last_underscore == NULL) {
-        printf("[FONT] Invalid font key format: '%s'\n", key);
+        RES_LOG("Invalid font key format: '%s'", key);
         return LV_FONT_DEFAULT;
     }
 
     int size = atoi(last_underscore + 1);
     if (size <= 0 || size > 200) {
-        printf("[FONT] Invalid font size in key: '%s'\n", key);
+        RES_LOG("Invalid font size in key: '%s'", key);
         return LV_FONT_DEFAULT;
     }
 
@@ -212,7 +208,7 @@ const lv_font_t* vw_resource_get_font(const char* key)
     }
 
     if (font_data == NULL) {
-        printf("[FONT] Unknown font name '%s' (from key '%s')\n", font_name, key);
+        RES_LOG("Unknown font name '%s' (from key '%s')", font_name, key);
         return LV_FONT_DEFAULT;
     }
 
@@ -224,11 +220,11 @@ const lv_font_t* vw_resource_get_font(const char* key)
         size,
         LV_FREETYPE_FONT_STYLE_NORMAL);
     if (font) {
-        printf("[FONT] Dynamic font created: %s_%d (on demand)\n", font_name, size);
+        RES_LOG("Dynamic font created: %s_%d (on demand)", font_name, size);
         return font;
     }
 
-    printf("[FONT] Failed to create dynamic font: %s_%d\n", font_name, size);
+    RES_LOG("Failed to create dynamic font: %s_%d", font_name, size);
     return LV_FONT_DEFAULT;
 }
 

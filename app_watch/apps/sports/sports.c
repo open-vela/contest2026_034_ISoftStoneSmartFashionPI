@@ -9,6 +9,12 @@
 #include <unistd.h>
 #include <sys/stat.h>
 
+#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
+#  define SPORTS_LOG(fmt, ...) printf("[SPORTS] " fmt "\n", ##__VA_ARGS__)
+#else
+#  define SPORTS_LOG(fmt, ...)
+#endif
+
 
 // 运动数据文件路径
 #define SPORT_DATA_FILE "/mnt/sd/sport.dat"
@@ -132,7 +138,7 @@ static void sport_end_page_create(void);
  */
 static void sport_app_create(void)
 {
-    printf("sport app clicked\n");
+    SPORTS_LOG("sport app clicked");
     
     // 创建运动选择页面
     sport_main_base = lv_obj_create(lv_scr_act());
@@ -244,7 +250,7 @@ static void sport_app_create(void)
     // 将页面压入页面栈
     vw_watch_push_page(sport_main_base);
 
-    printf("sport: create complete\n");
+    SPORTS_LOG("sport: create complete");
 }
 
 /**
@@ -341,7 +347,7 @@ static void sport_go_create(int sport_type)
     // 将页面压入页面栈
     vw_watch_push_page(sport_go_base);
 
-    printf("sport_go: create complete\n");
+    SPORTS_LOG("sport_go: create complete");
 }
 
 /**
@@ -481,7 +487,7 @@ static void sport_set_create(void)
     // 将页面压入页面栈
     vw_watch_push_page(sport_set_base);
 
-    printf("sport_set: create complete\n");
+    SPORTS_LOG("sport_set: create complete");
 }
 
 /**
@@ -685,7 +691,7 @@ static void sport_set_edit_create(int setting_type, int sport_type)
     // 将页面压入页面栈
     vw_watch_push_page(sport_set_edit_base);
 
-    printf("sport_set_edit: create complete\n");
+    SPORTS_LOG("sport_set_edit: create complete");
 }
 
 /**
@@ -706,8 +712,8 @@ static void sport_running_create(int sport_type)
                                   &sport_data.running_settings : &sport_data.walking_settings;
 
     int setting_type = settings->setting_type;
-    printf("sport_running: sport_type=%d, setting_type=%d\n", sport_type, setting_type);
-    printf("Loaded settings: target_time=%d, target_distance=%d, target_steps=%d\n",
+    SPORTS_LOG("sport_running: sport_type=%d, setting_type=%d", sport_type, setting_type);
+    SPORTS_LOG("Loaded settings: target_time=%d, target_distance=%d, target_steps=%d",
            settings->target_time, settings->target_distance, settings->target_steps);
 
     // 根据设置类型创建不同的UI
@@ -870,7 +876,7 @@ static void sport_running_create(int sport_type)
     // 将页面压入页面栈
     vw_watch_push_page(sport_running_base);
 
-    printf("sport_running: create complete\n");
+    SPORTS_LOG("sport_running: create complete");
 }
 
 /**
@@ -941,7 +947,7 @@ void sport_stop_app_create(void)
     // 将页面压入页面栈
     vw_watch_push_page(sport_stop_base);
 
-    printf("sport_stop: create complete\n");
+    SPORTS_LOG("sport_stop: create complete");
 }
 
 /**
@@ -957,7 +963,7 @@ static void sport_type_click_handler(lv_event_t *e)
     // 加载该运动类型的设置
     sport_load_settings();
 
-    printf("sport item clicked: sport_type=%d\n", sport_type);
+    SPORTS_LOG("sport item clicked: sport_type=%d", sport_type);
     sport_go_create(sport_type);
 }
 
@@ -967,7 +973,7 @@ static void sport_type_click_handler(lv_event_t *e)
 static void go_button_click_handler(lv_event_t *e)
 {
     int sport_type = (int)(intptr_t)lv_event_get_user_data(e);
-    printf("sport go clicked: sport_type=%d\n", sport_type);
+    SPORTS_LOG("sport go clicked: sport_type=%d", sport_type);
 
     // 保存运动类型
     sport_data.sport_type = sport_type;
@@ -992,7 +998,7 @@ static void setting_button_click_handler(lv_event_t *e)
 static void setting_item_click_handler(lv_event_t *e)
 {
     int setting_type = (int)(intptr_t)lv_event_get_user_data(e);
-    printf("sport setting item clicked: setting_type=%d, sport_type=%d\n", setting_type, sport_data.sport_type);
+    SPORTS_LOG("sport setting item clicked: setting_type=%d, sport_type=%d", setting_type, sport_data.sport_type);
     sport_set_edit_create(setting_type, sport_data.sport_type);
 }
 
@@ -1028,7 +1034,7 @@ static void confirm_button_click_handler(lv_event_t *e)
                 actual_value = 10 + index * 5;
             }
             settings->target_time = actual_value;
-            printf("Set %s target time: %d minutes\n",
+            SPORTS_LOG("Set %s target time: %d minutes",
                    sport_type == SPORT_TYPE_OUTDOOR_RUNNING ? "running" : "walking",
                    actual_value);
             break;
@@ -1041,7 +1047,7 @@ static void confirm_button_click_handler(lv_event_t *e)
                 actual_value = 1 + index;
             }
             settings->target_distance = actual_value;  // 存储为0.5公里的倍数
-            printf("Set %s target distance: %.1f km\n",
+            SPORTS_LOG("Set %s target distance: %.1f km",
                    sport_type == SPORT_TYPE_OUTDOOR_RUNNING ? "running" : "walking",
                    actual_value * 0.5f);
             break;
@@ -1054,7 +1060,7 @@ static void confirm_button_click_handler(lv_event_t *e)
                 actual_value = 2000 + index * 1000;
             }
             settings->target_steps = actual_value;
-            printf("Set %s target steps: %d steps\n",
+            SPORTS_LOG("Set %s target steps: %d steps",
                    sport_type == SPORT_TYPE_OUTDOOR_RUNNING ? "running" : "walking",
                    actual_value);
             break;
@@ -1100,7 +1106,7 @@ static void continue_button_click_handler(lv_event_t *e)
         lv_timer_resume(sport_timer);
     }
     sensor_step_counter_resume();
-    printf("[SPORT] Resumed: timer resumed, step counter resumed\n");
+    SPORTS_LOG("[SPORT] Resumed: timer resumed, step counter resumed");
 }
 
 /**
@@ -1176,7 +1182,7 @@ static void sport_timer_handler(lv_timer_t *timer)
         sport_data.current_speed = 0.0f;
     }
 
-    printf("Timer: time=%d, steps=%d, distance=%.1f, speed=%.2f m/s\n",
+    SPORTS_LOG("Timer: time=%d, steps=%d, distance=%.1f, speed=%.2f m/s",
            sport_data.current_time, sport_data.current_steps, sport_data.current_distance, sport_data.current_speed);
 
     // 更新UI
@@ -1186,7 +1192,7 @@ static void sport_timer_handler(lv_timer_t *timer)
                                       &sport_data.running_settings : &sport_data.walking_settings;
 
         int setting_type = settings->setting_type;
-        printf("Setting type: %d\n", setting_type);
+        SPORTS_LOG("Setting type: %d", setting_type);
 
         // 获取UI对象
         lv_obj_t *top_label = lv_obj_get_child(sport_running_base, 1);
@@ -1199,7 +1205,7 @@ static void sport_timer_handler(lv_timer_t *timer)
         //        top_label, arc, arc_value_label, left_label, speed_label);
 
         if (!top_label || !arc || !arc_value_label || !left_label || !speed_label) {
-            printf("ERROR: Some UI objects are NULL!\n");
+            SPORTS_LOG("ERROR: Some UI objects are NULL!");
             return;
         }
 
@@ -1267,10 +1273,10 @@ static void sport_timer_handler(lv_timer_t *timer)
                     break;
             }
             lv_arc_set_value(arc, current_value);
-            printf("Arc value updated to %d\n", current_value);
+            SPORTS_LOG("Arc value updated to %d", current_value);
         }
 
-        printf("UI update complete\n");
+        SPORTS_LOG("UI update complete");
     }
 }
 
@@ -1284,7 +1290,7 @@ static void slide_gesture_sport_main_handler(lv_event_t *e)
 
     switch(code) {
         case LV_EVENT_PRESSED:
-            printf("sport_main: pressed\n");
+            SPORTS_LOG("sport_main: pressed");
             lv_indev_get_point(lv_indev_active(), &start_point);
             break;
         
@@ -1296,11 +1302,11 @@ static void slide_gesture_sport_main_handler(lv_event_t *e)
             int32_t delta_x = end_point.x - start_point.x;
             int32_t delta_y = end_point.y - start_point.y;
 
-            printf("sport_main: released, delta_x=%d, delta_y=%d\n", delta_x, delta_y);
+            SPORTS_LOG("sport_main: released, delta_x=%d, delta_y=%d", delta_x, delta_y);
 
             // 右滑退出（横向移动超过50px且大于纵向移动）
             if (delta_x > 50 && abs(delta_x) > abs(delta_y)) {
-                printf("sport_main: right swipe, exit\n");
+                SPORTS_LOG("sport_main: right swipe, exit");
                 if(sport_main_base != NULL) {
                     // 将页面从页面栈弹出
                     vw_watch_pop_page(sport_main_base);
@@ -1325,7 +1331,7 @@ static void slide_gesture_sport_go_handler(lv_event_t *e)
 
     switch(code) {
         case LV_EVENT_PRESSED:
-            printf("sport_go: pressed\n");
+            SPORTS_LOG("sport_go: pressed");
             lv_indev_get_point(lv_indev_active(), &start_point);
             break;
         
@@ -1337,11 +1343,11 @@ static void slide_gesture_sport_go_handler(lv_event_t *e)
             int32_t delta_x = end_point.x - start_point.x;
             int32_t delta_y = end_point.y - start_point.y;
 
-            printf("sport_go: released, delta_x=%d, delta_y=%d\n", delta_x, delta_y);
+            SPORTS_LOG("sport_go: released, delta_x=%d, delta_y=%d", delta_x, delta_y);
 
             // 右滑退出（横向移动超过50px且大于纵向移动）
             if (delta_x > 50 && abs(delta_x) > abs(delta_y)) {
-                printf("sport_go: right swipe, exit\n");
+                SPORTS_LOG("sport_go: right swipe, exit");
                 if(sport_go_base != NULL) {
                     // 将页面从页面栈弹出
                     vw_watch_pop_page(sport_go_base);
@@ -1367,7 +1373,7 @@ static void slide_gesture_sport_set_handler(lv_event_t *e)
 
     switch(code) {
         case LV_EVENT_PRESSED:
-            printf("sport_set: pressed\n");
+            SPORTS_LOG("sport_set: pressed");
             lv_indev_get_point(lv_indev_active(), &start_point);
             break;
         
@@ -1379,11 +1385,11 @@ static void slide_gesture_sport_set_handler(lv_event_t *e)
             int32_t delta_x = end_point.x - start_point.x;
             int32_t delta_y = end_point.y - start_point.y;
 
-            printf("sport_set: released, delta_x=%d, delta_y=%d\n", delta_x, delta_y);
+            SPORTS_LOG("sport_set: released, delta_x=%d, delta_y=%d", delta_x, delta_y);
 
             // 右滑退出（横向移动超过50px且大于纵向移动）
             if (delta_x > 50 && abs(delta_x) > abs(delta_y)) {
-                printf("sport_set: right swipe, exit, sport_data.sport_type=%d\n", sport_data.sport_type);
+                SPORTS_LOG("sport_set: right swipe, exit, sport_data.sport_type=%d", sport_data.sport_type);
                 if(sport_set_base != NULL) {
                     // 将页面从页面栈弹出
                     vw_watch_pop_page(sport_set_base);
@@ -1409,7 +1415,7 @@ static void slide_gesture_sport_set_edit_handler(lv_event_t *e)
 
     switch(code) {
         case LV_EVENT_PRESSED:
-            printf("sport_set_edit: pressed\n");
+            SPORTS_LOG("sport_set_edit: pressed");
             lv_indev_get_point(lv_indev_active(), &start_point);
             break;
         
@@ -1421,11 +1427,11 @@ static void slide_gesture_sport_set_edit_handler(lv_event_t *e)
             int32_t delta_x = end_point.x - start_point.x;
             int32_t delta_y = end_point.y - start_point.y;
 
-            printf("sport_set_edit: released, delta_x=%d, delta_y=%d\n", delta_x, delta_y);
+            SPORTS_LOG("sport_set_edit: released, delta_x=%d, delta_y=%d", delta_x, delta_y);
 
             // 右滑退出（横向移动超过50px且大于纵向移动）
             if (delta_x > 50 && abs(delta_x) > abs(delta_y)) {
-                printf("sport_set_edit: right swipe, exit\n");
+                SPORTS_LOG("sport_set_edit: right swipe, exit");
                 if(sport_set_edit_base != NULL) {
                     // 将页面从页面栈弹出
                     vw_watch_pop_page(sport_set_edit_base);
@@ -1451,7 +1457,7 @@ static void slide_gesture_sport_running_handler(lv_event_t *e)
 
     switch(code) {
         case LV_EVENT_PRESSED:
-            printf("sport_running: pressed\n");
+            SPORTS_LOG("sport_running: pressed");
             lv_indev_get_point(lv_indev_active(), &start_point);
             break;
         
@@ -1463,11 +1469,11 @@ static void slide_gesture_sport_running_handler(lv_event_t *e)
             int32_t delta_x = end_point.x - start_point.x;
             int32_t delta_y = end_point.y - start_point.y;
 
-            printf("sport_running: released, delta_x=%d, delta_y=%d\n", delta_x, delta_y);
+            SPORTS_LOG("sport_running: released, delta_x=%d, delta_y=%d", delta_x, delta_y);
 
             // 右滑退出（横向移动超过50px且大于纵向移动）
             if (delta_x > 50 && abs(delta_x) > abs(delta_y)) {
-                printf("sport_running: right swipe, exit\n");
+                SPORTS_LOG("sport_running: right swipe, exit");
                 if (sport_timer != NULL) {
                     lv_timer_pause(sport_timer);
                 }
@@ -1496,7 +1502,7 @@ static void slide_gesture_sport_stop_handler(lv_event_t *e)
 
     switch(code) {
         case LV_EVENT_PRESSED:
-            printf("sport_stop: pressed\n");
+            SPORTS_LOG("sport_stop: pressed");
             lv_indev_get_point(lv_indev_active(), &start_point);
             break;
         
@@ -1508,11 +1514,11 @@ static void slide_gesture_sport_stop_handler(lv_event_t *e)
             int32_t delta_x = end_point.x - start_point.x;
             int32_t delta_y = end_point.y - start_point.y;
 
-            printf("sport_stop: released, delta_x=%d, delta_y=%d\n", delta_x, delta_y);
+            SPORTS_LOG("sport_stop: released, delta_x=%d, delta_y=%d", delta_x, delta_y);
 
             // 右滑退出（横向移动超过50px且大于纵向移动）
             if (delta_x > 50 && abs(delta_x) > abs(delta_y)) {
-                printf("sport_stop: right swipe, exit\n");
+                SPORTS_LOG("sport_stop: right swipe, exit");
                 if(sport_stop_base != NULL) {
                     // 将页面从页面栈弹出
                     vw_watch_pop_page(sport_stop_base);
@@ -1546,27 +1552,27 @@ static int sport_save_settings(void)
 {
     int fd = open(SPORT_DATA_FILE, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd < 0) {
-        printf("Failed to open sport data file for writing: %s\n", SPORT_DATA_FILE);
+        SPORTS_LOG("Failed to open sport data file for writing: %s", SPORT_DATA_FILE);
         return -1;
     }
 
     // 只保存设置部分,不保存运行时数据
     ssize_t bytes_written = write(fd, &sport_data.running_settings, sizeof(sport_settings_t));
     if (bytes_written != sizeof(sport_settings_t)) {
-        printf("Failed to write running settings\n");
+        SPORTS_LOG("Failed to write running settings");
         close(fd);
         return -1;
     }
 
     bytes_written = write(fd, &sport_data.walking_settings, sizeof(sport_settings_t));
     if (bytes_written != sizeof(sport_settings_t)) {
-        printf("Failed to write walking settings\n");
+        SPORTS_LOG("Failed to write walking settings");
         close(fd);
         return -1;
     }
 
     close(fd);
-    printf("Sport settings saved successfully\n");
+    SPORTS_LOG("Sport settings saved successfully");
     return 0;
 }
 
@@ -1577,14 +1583,14 @@ static int sport_load_settings(void)
 {
     int fd = open(SPORT_DATA_FILE, O_RDONLY);
     if (fd < 0) {
-        printf("Sport data file not found, using default settings\n");
+        SPORTS_LOG("Sport data file not found, using default settings");
         return -1;
     }
 
     // 读取跑步设置
     ssize_t bytes_read = read(fd, &sport_data.running_settings, sizeof(sport_settings_t));
     if (bytes_read != sizeof(sport_settings_t)) {
-        printf("Failed to read running settings\n");
+        SPORTS_LOG("Failed to read running settings");
         close(fd);
         return -1;
     }
@@ -1592,18 +1598,18 @@ static int sport_load_settings(void)
     // 读取步行设置
     bytes_read = read(fd, &sport_data.walking_settings, sizeof(sport_settings_t));
     if (bytes_read != sizeof(sport_settings_t)) {
-        printf("Failed to read walking settings\n");
+        SPORTS_LOG("Failed to read walking settings");
         close(fd);
         return -1;
     }
 
     close(fd);
-    printf("Sport settings loaded successfully\n");
-    printf("Running: time=%d, distance=%d, steps=%d\n",
+    SPORTS_LOG("Sport settings loaded successfully");
+    SPORTS_LOG("Running: time=%d, distance=%d, steps=%d",
            sport_data.running_settings.target_time,
            sport_data.running_settings.target_distance,
            sport_data.running_settings.target_steps);
-    printf("Walking: time=%d, distance=%d, steps=%d\n",
+    SPORTS_LOG("Walking: time=%d, distance=%d, steps=%d",
            sport_data.walking_settings.target_time,
            sport_data.walking_settings.target_distance,
            sport_data.walking_settings.target_steps);
@@ -1753,7 +1759,7 @@ static void sport_end_page_create(void)
     // 将页面压入页面栈
     vw_watch_push_page(sport_end_base);
 
-    printf("sport_end: create complete\n");
+    SPORTS_LOG("sport_end: create complete");
 }
 
 /**
@@ -1766,7 +1772,7 @@ static void slide_gesture_sport_end_handler(lv_event_t *e)
 
     switch(code) {
         case LV_EVENT_PRESSED:
-            printf("sport_end: pressed\n");
+            SPORTS_LOG("sport_end: pressed");
             lv_indev_get_point(lv_indev_active(), &start_point);
             break;
         
@@ -1778,11 +1784,11 @@ static void slide_gesture_sport_end_handler(lv_event_t *e)
             int32_t delta_x = end_point.x - start_point.x;
             int32_t delta_y = end_point.y - start_point.y;
 
-            printf("sport_end: released, delta_x=%d, delta_y=%d\n", delta_x, delta_y);
+            SPORTS_LOG("sport_end: released, delta_x=%d, delta_y=%d", delta_x, delta_y);
 
             // 右滑退出（横向移动超过50px且大于纵向移动）
             if (delta_x > 50 && abs(delta_x) > abs(delta_y)) {
-                printf("sport_end: right swipe, exit\n");
+                SPORTS_LOG("sport_end: right swipe, exit");
                 if (sport_end_base != NULL) {
                     // 将页面从页面栈弹出
                     vw_watch_pop_page(sport_end_base);

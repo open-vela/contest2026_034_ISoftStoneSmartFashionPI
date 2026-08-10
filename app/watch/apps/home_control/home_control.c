@@ -28,7 +28,7 @@
 #include <netutils/netlib.h>
 
 #include "home_control.h"
-#include "../settings/settings_wifi.h"
+#include "apps/settings/settings_wifi.h"  /* 使用手表UI的WiFi设置头文件 */
 
 /****************************************************************************
  * Pre-processor Definitions

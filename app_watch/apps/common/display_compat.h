@@ -12,6 +12,7 @@
 #define DISPLAY_COMPAT_H
 
 static inline void display_set_timeout(int timeout) { (void)timeout; }
+static inline int display_get_timeout(void) { return 30; }  /* 默认30秒 */
 static inline void ft3168_display_timeout_setup(void) {}
 static inline void setNull_display_timeout_timer(void) {}
 static inline int getchange(void) { return 0; }

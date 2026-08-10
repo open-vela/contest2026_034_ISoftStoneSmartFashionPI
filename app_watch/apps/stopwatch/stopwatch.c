@@ -10,6 +10,12 @@
 #include <stdio.h>
 #include <time.h>
 
+#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
+#  define STOPWATCH_LOG(fmt, ...) printf("[STOPWATCH] " fmt "\n", ##__VA_ARGS__)
+#else
+#  define STOPWATCH_LOG(fmt, ...)
+#endif
+
 /* UI对象 */
 static lv_obj_t* stopwatch_base = NULL;
 static lv_obj_t* stopwatch_label = NULL;
@@ -109,7 +115,7 @@ static void stopwatch_app_create(void)
     // 添加滑动手势处理
     lv_obj_add_event_cb(stopwatch_base, slide_gesture_handler, LV_EVENT_ALL, NULL);
 
-    printf("stopwatch: create complete\n");
+    STOPWATCH_LOG("create complete");
 }
 
 /**
@@ -246,7 +252,7 @@ static void slide_gesture_handler(lv_event_t *e)
  */
 void stopwatch_app_click_callback(lv_event_t *e)
 {
-    printf("stopwatch app clicked\n");
+    STOPWATCH_LOG("stopwatch app clicked");
     stopwatch_app_create();
     /* 将页面添加到页面栈 */
     if (stopwatch_base != NULL) {

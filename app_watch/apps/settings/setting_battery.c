@@ -4,6 +4,12 @@
 #include <math.h>
 #include <nuttx/power/axp2101.h>
 
+#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
+#  define BATTERY_LOG(fmt, ...) printf("[BATTERY] " fmt "\n", ##__VA_ARGS__)
+#else
+#  define BATTERY_LOG(fmt, ...)
+#endif
+
 /* UI对象 */
 static lv_obj_t* battery_base = NULL;
 static lv_obj_t* battery_arc = NULL;
@@ -41,7 +47,7 @@ static void update_battery_info(void)
 {
     // 获取实际电量
     battery_soc = axp2101_get_pmu_soc();
-    printf("Battery SOC: %d%%\n", battery_soc);
+    BATTERY_LOG("Battery SOC: %d%%", battery_soc);
 }
 
 static void blink_timer_cb(lv_timer_t *timer)
@@ -118,7 +124,7 @@ static void battery_update_timer_cb(lv_timer_t *timer)
     }
     
     battery_soc = axp2101_get_pmu_soc();
-    printf("get cur battery value: %d\n", battery_soc);
+    BATTERY_LOG("get cur battery value: %d", battery_soc);
     
     if (battery_label != NULL) {
         char buf[10];
@@ -268,7 +274,7 @@ void setting_charging_create(void)
     }
     blink_timer = lv_timer_create(blink_timer_cb, 1000, NULL);
 
-    printf("charging: create complete\n");
+    BATTERY_LOG("charging: create complete");
 }
 
 void setting_charging_destroy(void)
@@ -285,7 +291,7 @@ void setting_charging_destroy(void)
         charging_base = NULL;
     }
     
-    printf("charging: destroy complete\n");
+    BATTERY_LOG("charging: destroy complete");
 }
 
 void setting_battery_destroy(void)
@@ -387,7 +393,7 @@ static void setting_battery_create(void)
     // 添加滑动手势处理
     lv_obj_add_event_cb(battery_base, slide_gesture_handler, LV_EVENT_ALL, NULL);
 
-    printf("battery: create complete\n");
+    BATTERY_LOG("battery: create complete");
 }
 
 /**
@@ -431,7 +437,7 @@ void settings_battery_event_cb(lv_event_t *e)
 {
     lv_event_code_t code = lv_event_get_code(e);
     if (code == LV_EVENT_CLICKED) {
-        printf("Settings battery button click.\n");
+        BATTERY_LOG("Settings battery button click.");
         setting_battery_create();
     }
 }

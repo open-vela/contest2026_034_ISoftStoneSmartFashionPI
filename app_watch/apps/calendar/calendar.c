@@ -10,6 +10,12 @@
 #include <stdio.h>
 #include <time.h>
 
+#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
+#  define CAL_LOG(fmt, ...) printf("[CALENDAR] " fmt "\n", ##__VA_ARGS__)
+#else
+#  define CAL_LOG(fmt, ...)
+#endif
+
 extern const lv_image_dsc_t icon_calendar_left;
 extern const lv_image_dsc_t icon_calendar_right;
 
@@ -82,7 +88,7 @@ static int calculate_month_rows(int year, int month)
     if (rows_needed < 4) rows_needed = 4;
     if (rows_needed > 6) rows_needed = 6;
 
-    printf("[calculate_month_rows] Year=%d, Month=%d, FirstDayWday=%d, LastDayWday=%d, DaysInMonth=%d, StartOffset=%d, LastDayOffset=%d, PaddingDays=%d, TotalCells=%d, RowsNeeded=%d\n",
+    CAL_LOG("[calculate_month_rows] Year=%d, Month=%d, FirstDayWday=%d, LastDayWday=%d, DaysInMonth=%d, StartOffset=%d, LastDayOffset=%d, PaddingDays=%d, TotalCells=%d, RowsNeeded=%d",
            year, month, first_day_wday, last_day_wday, days_in_month, start_offset, last_day_offset, padding_days, total_cells, rows_needed);
 
     return rows_needed;
@@ -96,18 +102,18 @@ static int calculate_month_rows(int year, int month)
 static void hide_unused_rows(lv_obj_t *calendar_btnm, int rows_needed)
 {
     if (calendar_btnm == NULL) {
-        printf("[hide_unused_rows] ERROR: calendar_btnm is NULL\n");
+        CAL_LOG("[hide_unused_rows] ERROR: calendar_btnm is NULL");
         return;
     }
 
-    printf("[hide_unused_rows] Start: RowsNeeded=%d\n", rows_needed);
+    CAL_LOG("[hide_unused_rows] Start: RowsNeeded=%d", rows_needed);
 
     // LVGL日历固定6行，每行7个按钮
     // 前7个是星期名称，从索引7开始是日期
     // 我们需要隐藏不需要的行
 
     // 首先，清除所有行的HIDDEN状态
-    printf("[hide_unused_rows] Clearing HIDDEN state for all rows\n");
+    CAL_LOG("[hide_unused_rows] Clearing HIDDEN state for all rows");
     for (int i = 7; i < 7 + 6 * 7; i++) {
         lv_buttonmatrix_clear_button_ctrl(calendar_btnm, i, LV_BUTTONMATRIX_CTRL_HIDDEN);
     }
@@ -116,26 +122,26 @@ static void hide_unused_rows(lv_obj_t *calendar_btnm, int rows_needed)
     int first_hidden_row = rows_needed;  // 从第几行开始隐藏（0-based）
     int first_hidden_index = 7 + first_hidden_row * 7;  // buttonmatrix中的起始索引
 
-    printf("[hide_unused_rows] FirstHiddenRow=%d, FirstHiddenIndex=%d, MaxIndex=%d\n",
+    CAL_LOG("[hide_unused_rows] FirstHiddenRow=%d, FirstHiddenIndex=%d, MaxIndex=%d",
            first_hidden_row, first_hidden_index, 7 + 6 * 7);
 
     // 隐藏不需要的行
     if (first_hidden_index < 7 + 6 * 7) {
-        printf("[hide_unused_rows] Hiding buttons from index %d to %d\n", first_hidden_index, 7 + 6 * 7 - 1);
+        CAL_LOG("[hide_unused_rows] Hiding buttons from index %d to %d", first_hidden_index, 7 + 6 * 7 - 1);
         for (int i = first_hidden_index; i < 7 + 6 * 7; i++) {
             lv_buttonmatrix_set_button_ctrl(calendar_btnm, i, LV_BUTTONMATRIX_CTRL_HIDDEN);
 
             // 验证是否设置成功
             bool is_hidden = lv_buttonmatrix_has_button_ctrl(calendar_btnm, i, LV_BUTTONMATRIX_CTRL_HIDDEN);
             if (!is_hidden) {
-                printf("[hide_unused_rows] ERROR: Failed to hide button at index %d\n", i);
+                CAL_LOG("[hide_unused_rows] ERROR: Failed to hide button at index %d", i);
             }
         }
     } else {
-        printf("[hide_unused_rows] No rows to hide (all 6 rows needed)\n");
+        CAL_LOG("[hide_unused_rows] No rows to hide (all 6 rows needed)");
     }
 
-    printf("[hide_unused_rows] Complete\n");
+    CAL_LOG("[hide_unused_rows] Complete");
 }
 
 /**
@@ -147,13 +153,13 @@ static void calendar_event_handler(lv_event_t *e)
 
     if (code == LV_EVENT_VALUE_CHANGED) {
         if (date_label == NULL || calendar == NULL) {
-            printf("date_label is NULL\n");
+            CAL_LOG("date_label is NULL");
             return;
         }
 
         lv_calendar_date_t date;
         if (lv_calendar_get_pressed_date(calendar, &date)) {
-            printf("Selected date: %d-%02d-%02d\n", date.year, date.month, date.day);
+            CAL_LOG("Selected date: %d-%02d-%02d", date.year, date.month, date.day);
 
             // 更新顶部日期显示
             char date_str[32];
@@ -206,11 +212,11 @@ static void calendar_event_handler(lv_event_t *e)
  */
 static void left_arrow_cb(lv_event_t *e)
 {
-    printf("left arrow clicked\n");
+    CAL_LOG("left arrow clicked");
 
     // 检查日历对象是否有效
     if (calendar == NULL) {
-        printf("calendar object is NULL\n");
+        CAL_LOG("calendar object is NULL");
         return;
     }
 
@@ -219,7 +225,7 @@ static void left_arrow_cb(lv_event_t *e)
     if (showed_date) {
         lv_calendar_date_t new_date = *showed_date;
 
-        printf("[left_arrow_cb] Current showed date: %d-%02d\n", new_date.year, new_date.month);
+        CAL_LOG("[left_arrow_cb] Current showed date: %d-%02d", new_date.year, new_date.month);
 
         // 切换到上个月
         new_date.month--;
@@ -229,23 +235,23 @@ static void left_arrow_cb(lv_event_t *e)
         }
         new_date.day = 1;
 
-        printf("[left_arrow_cb] Switching to: %d-%02d\n", new_date.year, new_date.month);
+        CAL_LOG("[left_arrow_cb] Switching to: %d-%02d", new_date.year, new_date.month);
 
         // 计算新月份需要的行数并调整日历高度
         int rows_needed = calculate_month_rows(new_date.year, new_date.month);
         int calendar_height = 60 + rows_needed * 55;
 
-        printf("[left_arrow_cb] Rows needed: %d, Calendar height: %d\n", rows_needed, calendar_height);
+        CAL_LOG("[left_arrow_cb] Rows needed: %d, Calendar height: %d", rows_needed, calendar_height);
 
         // 获取当前日历的高度
         int32_t old_height = lv_obj_get_height(calendar);
-        printf("[left_arrow_cb] Old calendar height: %d\n", old_height);
+        CAL_LOG("[left_arrow_cb] Old calendar height: %d", old_height);
 
         lv_obj_set_height(calendar, calendar_height);
 
         // 验证设置后的高度
         int32_t new_height = lv_obj_get_height(calendar);
-        printf("[left_arrow_cb] New calendar height after set: %d\n", new_height);
+        CAL_LOG("[left_arrow_cb] New calendar height after set: %d", new_height);
 
         // 设置新的显示日期
         lv_calendar_set_showed_date(calendar, new_date.year, new_date.month);
@@ -275,11 +281,11 @@ static void left_arrow_cb(lv_event_t *e)
  */
 static void right_arrow_cb(lv_event_t *e)
 {
-    printf("right arrow clicked\n");
+    CAL_LOG("right arrow clicked");
 
     // 检查日历对象是否有效
     if (calendar == NULL) {
-        printf("calendar object is NULL\n");
+        CAL_LOG("calendar object is NULL");
         return;
     }
 
@@ -288,7 +294,7 @@ static void right_arrow_cb(lv_event_t *e)
     if (showed_date) {
         lv_calendar_date_t new_date = *showed_date;
 
-        printf("[right_arrow_cb] Current showed date: %d-%02d\n", new_date.year, new_date.month);
+        CAL_LOG("[right_arrow_cb] Current showed date: %d-%02d", new_date.year, new_date.month);
 
         // 切换到下个月
         new_date.month++;
@@ -298,23 +304,23 @@ static void right_arrow_cb(lv_event_t *e)
         }
         new_date.day = 1;
 
-        printf("[right_arrow_cb] Switching to: %d-%02d\n", new_date.year, new_date.month);
+        CAL_LOG("[right_arrow_cb] Switching to: %d-%02d", new_date.year, new_date.month);
 
         // 计算新月份需要的行数并调整日历高度
         int rows_needed = calculate_month_rows(new_date.year, new_date.month);
         int calendar_height = 60 + rows_needed * 55;
 
-        printf("[right_arrow_cb] Rows needed: %d, Calendar height: %d\n", rows_needed, calendar_height);
+        CAL_LOG("[right_arrow_cb] Rows needed: %d, Calendar height: %d", rows_needed, calendar_height);
 
         // 获取当前日历的高度
         int32_t old_height = lv_obj_get_height(calendar);
-        printf("[right_arrow_cb] Old calendar height: %d\n", old_height);
+        CAL_LOG("[right_arrow_cb] Old calendar height: %d", old_height);
 
         lv_obj_set_height(calendar, calendar_height);
 
         // 验证设置后的高度
         int32_t new_height = lv_obj_get_height(calendar);
-        printf("[right_arrow_cb] New calendar height after set: %d\n", new_height);
+        CAL_LOG("[right_arrow_cb] New calendar height after set: %d", new_height);
 
         // 设置新的显示日期
         lv_calendar_set_showed_date(calendar, new_date.year, new_date.month);
@@ -361,7 +367,7 @@ static void slide_gesture_handler(lv_event_t *e)
             int32_t delta_y = end_point.y - start_point.y;
             
             if(delta_x > 50 && abs(delta_x) > abs(delta_y)) {
-                printf("right swipe, exit calendar\n");
+                CAL_LOG("right swipe, exit calendar");
                 if(calendar_base != NULL) {
                     // 将页面从页面栈弹出
                     vw_watch_pop_page(calendar_base);
@@ -381,7 +387,7 @@ static void slide_gesture_handler(lv_event_t *e)
  */
 static void app_calendar_create(void)
 {
-    printf("calendar: create page\n");
+    CAL_LOG("calendar: create page");
 
     // 获取当前日期
     time_t now;
@@ -390,7 +396,7 @@ static void app_calendar_create(void)
     int current_year = tm_info->tm_year + 1900;
     int current_month = tm_info->tm_mon + 1;
     int current_day = tm_info->tm_mday;
-    printf("current date: %d-%02d-%02d\n", current_year, current_month, current_day);
+    CAL_LOG("current date: %d-%02d-%02d", current_year, current_month, current_day);
 
     // 创建日历页面基础容器
     calendar_base = lv_obj_create(lv_scr_act());
@@ -420,7 +426,7 @@ static void app_calendar_create(void)
     int rows_needed = calculate_month_rows(current_year, current_month);
     int calendar_height = 60 + rows_needed * 55;  // 60是星期头高度，55是每行日期高度
 
-    printf("Month %d-%02d needs %d rows, height %d\n",
+    CAL_LOG("Month %d-%02d needs %d rows, height %d",
            current_year, current_month, rows_needed, calendar_height);
 
     lv_obj_set_size(calendar, WATCH_SCREEN_WIDTH - 20, calendar_height);
@@ -512,7 +518,7 @@ static void app_calendar_create(void)
         if (today_index < 7 + 6 * 7) {
             lv_buttonmatrix_set_button_ctrl(calendar_btnm, today_index, LV_BUTTONMATRIX_CTRL_CHECKABLE);
             lv_buttonmatrix_set_button_ctrl(calendar_btnm, today_index, LV_BUTTONMATRIX_CTRL_CHECKED);
-            printf("Set today highlight at index %d\n", today_index);
+            CAL_LOG("Set today highlight at index %d", today_index);
         }
 
         // 隐藏不需要的行
@@ -528,11 +534,11 @@ static void app_calendar_create(void)
     // 将页面压入页面栈
     vw_watch_push_page(calendar_base);
 
-    printf("calendar: create complete\n");
+    CAL_LOG("calendar: create complete");
 }
 
 void calendar_app_click_callback(lv_event_t *e)
 {
-    printf("calendar app clicked\n");
+    CAL_LOG("calendar app clicked");
     app_calendar_create();
 }

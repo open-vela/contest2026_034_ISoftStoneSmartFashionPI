@@ -13,6 +13,12 @@
 #include <sys/time.h>
 #include <fcntl.h>
 #include <unistd.h>
+
+#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
+#  define SETTINGS_LOG(fmt, ...) printf("[SETTINGS] " fmt "\n", ##__VA_ARGS__)
+#else
+#  define SETTINGS_LOG(fmt, ...)
+#endif
 #include <sys/ioctl.h>
 #include <errno.h>
 #include <nuttx/timers/rtc.h>
@@ -68,7 +74,7 @@ static void settings_timeset_create(void)
     char time_str[32];
     snprintf(time_str, sizeof(time_str), "%02d:%02d", time_info->tm_hour, time_info->tm_min);
     lv_label_set_text(time_label, time_str);
-    lv_obj_set_style_text_font(time_label, vw_resource_get_font(WATCH_ALIBABA_REGULAR_FONT "_96"), 0);
+    lv_obj_set_style_text_font(time_label, vw_resource_get_font(WATCH_REGULAR_FONT "_96"), 0);
     lv_obj_set_style_text_color(time_label, lv_color_white(), 0);
     lv_obj_align(time_label, LV_ALIGN_TOP_MID, 0, 161);
 
@@ -319,9 +325,9 @@ static void set_system_time(int year, int month, int day, int hour, int minute)
     new_timeval.tv_usec = 0;
     
     if (settimeofday(&new_timeval, NULL) == -1) {
-        printf("Failed to set system time\n");
+        SETTINGS_LOG("Failed to set system time");
     } else {
-        printf("System time set to: %d-%02d-%02d %02d:%02d\n", year, month, day, hour, minute);
+        SETTINGS_LOG("System time set to: %d-%02d-%02d %02d:%02d", year, month, day, hour, minute);
     }
     
     int fd = open("/dev/rtc0", O_RDWR);
@@ -340,11 +346,11 @@ static void set_system_time(int year, int month, int day, int hour, int minute)
         int rtc_ret = ioctl(fd, RTC_SET_TIME, (unsigned long)&rtctime);
         close(fd);
         if (rtc_ret >= 0)
-            printf("RTC time set successfully\n");
+            SETTINGS_LOG("RTC time set successfully");
         else
-            printf("Failed to set RTC time, errno=%d\n", errno);
+            SETTINGS_LOG("Failed to set RTC time, errno=%d", errno);
     } else {
-        printf("Cannot open /dev/rtc0, errno=%d\n", errno);
+        SETTINGS_LOG("Cannot open /dev/rtc0, errno=%d", errno);
     }
 }
 

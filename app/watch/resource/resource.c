@@ -21,6 +21,10 @@
 #include "image/generated/lvgl_assets.h"
 #include "power_png/generated/power_png_assets.h"
 #include "power_png/generated/gif_bootlogo.h"
+#include "power_png/generated/gif_expr_logo.h"
+#include "power_png/generated/gif_expr_anim.h"
+#include "power_png/generated/gif_watch_logo.h"
+#include "power_png/generated/gif_watch_anim.h"
 #include "image/Expression/gif1/generated/expression_gif1_assets.h"
 #include "font/generated/MiSans_Regular.h"
 
@@ -278,6 +282,26 @@ int watch_resource_get_expression_count(void)
 const void* watch_resource_get_bootlogo_gif(void)
 {
     return &gif_bootlogo;
+}
+
+const void* watch_resource_get_expr_logo_gif(void)
+{
+    return &gif_expr_logo;
+}
+
+const void* watch_resource_get_expr_anim_gif(void)
+{
+    return &gif_expr_anim;
+}
+
+const void* watch_resource_get_watch_logo_gif(void)
+{
+    return &gif_watch_logo;
+}
+
+const void* watch_resource_get_watch_anim_gif(void)
+{
+    return &gif_watch_anim;
 }
 
 int watch_resource_is_sd_ready(void)

@@ -11,14 +11,21 @@
 #include <unistd.h>
 #include <syslog.h>
 
+#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
+#  define WEATHER_LOG(fmt, ...) printf(fmt, ##__VA_ARGS__)
+#else
+#  define WEATHER_LOG(fmt, ...)
+#endif
+
 /* 样式定义 */
-static lv_style_t style_btn_normal;
-static lv_style_t style_btn_selected;
+static lv_style_t *style_btn_normal = NULL;
+static lv_style_t *style_btn_selected = NULL;
 
 /* 全局变量 */
-char g_weather_location_id[32] = QWEATHER_DEFAULT_LOCATION;
-char g_weather_city[64] = QWEATHER_DEFAULT_CITY;
-static LocationInfo g_location;
+/* 堆分配节省 96B BSS */
+static char *g_weather_location_id = NULL;
+static char *g_weather_city = NULL;
+static LocationInfo *g_location = NULL;  /* 堆分配节省 160B BSS */
 static int g_location_initialized = 0;
 static lv_obj_t *weather_main_base;
 static lv_obj_t *day_btn;
@@ -30,7 +37,16 @@ static lv_obj_t *hourly_container;
 static lv_obj_t *daily_container;
 static lv_obj_t *loading_label;
 static lv_timer_t *update_timer;
-static WeatherData weather_data;
+static WeatherData *weather_data = NULL;  /* 堆分配，节省 2888 字节 BSS */
+
+static WeatherData* weather_data_get(void)
+{
+    if (weather_data == NULL) {
+        weather_data = calloc(1, sizeof(WeatherData));
+    }
+    return weather_data;
+}
+#define WD (*weather_data_get())
 static int current_mode = 0;
 static int g_weather_fetching = 0;
 static time_t g_last_fetch_time = 0;
@@ -178,7 +194,7 @@ typedef struct {
     int status;                     // 当前网络状态: 0=未知, 1=已连接, 2=连接中, 3=断开
 } NetworkStats;
 
-static NetworkStats g_network_stats = {0};
+static NetworkStats *g_network_stats = NULL;  /* 堆分配节省 28B */
 
 #define NETWORK_STATUS_UNKNOWN  0
 #define NETWORK_STATUS_CONNECTED 1
@@ -187,55 +203,73 @@ static NetworkStats g_network_stats = {0};
 
 static void __attribute__((unused)) network_stats_reset(void)
 {
-    g_network_stats.connect_attempts = 0;
-    g_network_stats.connect_failures = 0;
-    g_network_stats.last_error = 0;
-    g_network_stats.last_connect_time = 0;
-    g_network_stats.total_bytes_received = 0;
-    g_network_stats.total_bytes_sent = 0;
-    g_network_stats.status = NETWORK_STATUS_UNKNOWN;
+    if (g_network_stats == NULL) {
+        g_network_stats = calloc(1, sizeof(NetworkStats));
+        if (g_network_stats == NULL) return;
+    }
+    g_network_stats->connect_attempts = 0;
+    g_network_stats->connect_failures = 0;
+    g_network_stats->last_error = 0;
+    g_network_stats->last_connect_time = 0;
+    g_network_stats->total_bytes_received = 0;
+    g_network_stats->total_bytes_sent = 0;
+    g_network_stats->status = NETWORK_STATUS_UNKNOWN;
 }
 
 static void network_stats_log(void)
 {
-    printf("[WeatherNet] Status: %d, Attempts: %d, Failures: %d, "
+    if (g_network_stats == NULL) return;
+    WEATHER_LOG("[WeatherNet] Status: %d, Attempts: %d, Failures: %d, "
            "LastErr: %d, Bytes RX/TX: %zu/%zu\n",
-           g_network_stats.status,
-           g_network_stats.connect_attempts,
-           g_network_stats.connect_failures,
-           g_network_stats.last_error,
-           g_network_stats.total_bytes_received,
-           g_network_stats.total_bytes_sent);
+           g_network_stats->status,
+           g_network_stats->connect_attempts,
+           g_network_stats->connect_failures,
+           g_network_stats->last_error,
+           g_network_stats->total_bytes_received,
+           g_network_stats->total_bytes_sent);
 }
 
 static void network_status_set(int status, int error)
 {
-    g_network_stats.status = status;
-    g_network_stats.last_error = error;
+    if (g_network_stats == NULL) {
+        g_network_stats = calloc(1, sizeof(NetworkStats));
+        if (g_network_stats == NULL) return;
+    }
+    g_network_stats->status = status;
+    g_network_stats->last_error = error;
     if (status == NETWORK_STATUS_CONNECTED) {
-        g_network_stats.last_connect_time = time(NULL);
-        g_network_stats.connect_attempts++;
-        printf("[WeatherNet] Connection established (attempt %d)\n", 
-               g_network_stats.connect_attempts);
+        g_network_stats->last_connect_time = time(NULL);
+        g_network_stats->connect_attempts++;
+        WEATHER_LOG("[WeatherNet] Connection established (attempt %d)\n", 
+               g_network_stats->connect_attempts);
     } else if (status == NETWORK_STATUS_DISCONNECTED) {
-        g_network_stats.connect_failures++;
-        printf("[WeatherNet] Connection failed (attempt %d, err=%d)\n", 
-               g_network_stats.connect_attempts, error);
+        g_network_stats->connect_failures++;
+        WEATHER_LOG("[WeatherNet] Connection failed (attempt %d, err=%d)\n", 
+               g_network_stats->connect_attempts, error);
     }
     network_stats_log();
 }
 
-/* 全局静态缓冲区 - 避免栈溢出 */
-#define HTTP_RESP_BUF_SIZE 16384
-#define HTTP_WGET_BUF_SIZE 8192
+/* 缓冲区配置 — 使用堆分配节省 DRAM (原静态分配 ~40KB) */
+#define HTTP_RESP_BUF_SIZE 8192
+#define HTTP_WGET_BUF_SIZE 4096
 
-static char g_http_resp_data[HTTP_RESP_BUF_SIZE] __attribute__((aligned(4)));
-static char g_http_wget_buf[HTTP_WGET_BUF_SIZE] __attribute__((aligned(4)));
+static char *g_http_resp_data = NULL;   /* 按需分配 */
+static char *g_http_wget_buf = NULL;    /* 按需分配 */
 static size_t g_http_resp_len = 0;
 
 static void http_resp_buf_init_static(void)
 {
     g_http_resp_len = 0;
+
+    /* 按需分配 HTTP 响应缓冲区 */
+    if (g_http_resp_data == NULL) {
+        g_http_resp_data = malloc(HTTP_RESP_BUF_SIZE);
+        if (g_http_resp_data == NULL) {
+            WEATHER_LOG("[WeatherNet] Failed to alloc resp buffer\n");
+            return;
+        }
+    }
     g_http_resp_data[0] = '\0';
 }
 
@@ -252,14 +286,14 @@ static size_t http_resp_buf_get_len(void)
 static int http_resp_buf_append(const char *data, size_t len)
 {
     if (g_http_resp_len + len >= HTTP_RESP_BUF_SIZE) {
-        printf("[WeatherNet] HTTP buffer overflow! Current: %zu, Need: %zu\n", 
+        WEATHER_LOG("[WeatherNet] HTTP buffer overflow! Current: %zu, Need: %zu\n", 
                g_http_resp_len, g_http_resp_len + len);
         return -ENOMEM;
     }
     memcpy(g_http_resp_data + g_http_resp_len, data, len);
     g_http_resp_len += len;
     g_http_resp_data[g_http_resp_len] = '\0';
-    g_network_stats.total_bytes_received += len;
+    if (g_network_stats) g_network_stats->total_bytes_received += len;
     return 0;
 }
 
@@ -271,16 +305,16 @@ static int http_sink_callback(FAR char **buffer, int offset,
     
     int chunk_len = datend - offset;
     if (chunk_len <= 0) {
-        printf("[WeatherNet] Empty chunk received\n");
+        WEATHER_LOG("[WeatherNet] Empty chunk received\n");
         return 0;
     }
 
-    printf("[WeatherNet] Receiving chunk: %d bytes (offset=%d, datend=%d)\n", 
+    WEATHER_LOG("[WeatherNet] Receiving chunk: %d bytes (offset=%d, datend=%d)\n", 
            chunk_len, offset, datend);
     
     int ret = http_resp_buf_append(*buffer + offset, chunk_len);
     if (ret != 0) {
-        printf("[WeatherNet] Buffer append failed: %d\n", ret);
+        WEATHER_LOG("[WeatherNet] Buffer append failed: %d\n", ret);
     }
     return ret;
 }
@@ -293,24 +327,31 @@ extern int weather_gunzip(const uint8_t *in, size_t inlen, uint8_t *out, size_t 
 static ssize_t maybe_gunzip(char **response, ssize_t resp_len)
 {
     if (resp_len >= 2 && (unsigned char)(*response)[0] == 0x1f && (unsigned char)(*response)[1] == 0x8b) {
-        static char g_gunzip_buf[16384];
-        size_t glen = sizeof(g_gunzip_buf);
+        /* 使用堆分配 gunzip 缓冲区（节省 16KB BSS） */
+        char *gunzip_buf = malloc(HTTP_RESP_BUF_SIZE);
+        if (gunzip_buf == NULL) {
+            WEATHER_LOG("[Weather] gunzip malloc failed\n");
+            return resp_len;
+        }
+        size_t glen = HTTP_RESP_BUF_SIZE;
         
-        if (weather_gunzip((const uint8_t *)*response, resp_len, (uint8_t *)g_gunzip_buf, &glen) == 0) {
+        if (weather_gunzip((const uint8_t *)*response, resp_len, (uint8_t *)gunzip_buf, &glen) == 0) {
             if (glen < HTTP_RESP_BUF_SIZE) {
-                memcpy(g_http_resp_data, g_gunzip_buf, glen);
+                memcpy(g_http_resp_data, gunzip_buf, glen);
                 g_http_resp_len = glen;
                 g_http_resp_data[glen] = '\0';
-                printf("[Weather] gunzip OK, len=%zu\n", glen);
+                WEATHER_LOG("[Weather] gunzip OK, len=%zu\n", glen);
+                free(gunzip_buf);
                 return (ssize_t)glen;
             } else {
-                printf("[Weather] gunzip buffer overflow\n");
+                WEATHER_LOG("[Weather] gunzip buffer overflow\n");
             }
         } else {
-            printf("[Weather] gunzip decompression failed\n");
+            WEATHER_LOG("[Weather] gunzip decompression failed\n");
         }
+        free(gunzip_buf);
     } else {
-        printf("[Weather] Not gzip compressed\n");
+        WEATHER_LOG("[Weather] Not gzip compressed\n");
     }
     return resp_len;
 }
@@ -318,30 +359,40 @@ static ssize_t maybe_gunzip(char **response, ssize_t resp_len)
 /* 执行HTTP GET请求，返回响应体（静态缓冲区，无需free），返回响应长度 */
 static ssize_t http_get(const char *url, char **response)
 {
-    printf("[WeatherNet] ===== HTTP GET INIT =====\n");
+    WEATHER_LOG("[WeatherNet] ===== HTTP GET INIT =====\n");
     
     // 检查 WiFi 连接状态
     if (!settings_wifi_is_connected()) {
-        printf("[WeatherNet] WiFi NOT connected! Aborting HTTP request\n");
+        WEATHER_LOG("[WeatherNet] WiFi NOT connected! Aborting HTTP request\n");
         network_status_set(NETWORK_STATUS_DISCONNECTED, -ENETUNREACH);
         *response = NULL;
         return -ENETUNREACH;
     }
-    printf("[WeatherNet] WiFi connected\n");
+    WEATHER_LOG("[WeatherNet] WiFi connected\n");
 
     // 重置网络状态统计和缓冲区
     network_status_set(NETWORK_STATUS_CONNECTING, 0);
     http_resp_buf_init_static();
-    printf("[WeatherNet] Buffer initialized\n");
+    WEATHER_LOG("[WeatherNet] Buffer initialized\n");
     
-    printf("[WeatherNet] ===== HTTP GET START =====\n");
-    printf("[WeatherNet] URL: %s\n", url);
-    printf("[WeatherNet] Timestamp: %lu\n", (unsigned long)time(NULL));
+    WEATHER_LOG("[WeatherNet] ===== HTTP GET START =====\n");
+    WEATHER_LOG("[WeatherNet] URL: %s\n", url);
+    WEATHER_LOG("[WeatherNet] Timestamp: %lu\n", (unsigned long)time(NULL));
 
     struct webclient_context ctx;
     webclient_set_defaults(&ctx);
     ctx.method = "GET";
     ctx.url = url;
+
+    /* 按需分配 wget 缓冲区 */
+    if (g_http_wget_buf == NULL) {
+        g_http_wget_buf = malloc(HTTP_WGET_BUF_SIZE);
+        if (g_http_wget_buf == NULL) {
+            WEATHER_LOG("[WeatherNet] Failed to alloc wget buffer\n");
+            *response = NULL;
+            return -ENOMEM;
+        }
+    }
     ctx.buffer = g_http_wget_buf;
     ctx.buflen = HTTP_WGET_BUF_SIZE;
     ctx.sink_callback = http_sink_callback;
@@ -350,32 +401,32 @@ static ssize_t http_get(const char *url, char **response)
     ctx.protocol_version = WEBCLIENT_PROTOCOL_VERSION_HTTP_1_1;
     ctx.tls_ops = &weather_webclient_tls_ops;
 
-    printf("[WeatherNet] Starting webclient_perform...\n");
+    WEATHER_LOG("[WeatherNet] Starting webclient_perform...\n");
     int ret = webclient_perform(&ctx);
-    printf("[WeatherNet] webclient_perform completed, ret=%d\n", ret);
+    WEATHER_LOG("[WeatherNet] webclient_perform completed, ret=%d\n", ret);
 
     if (ret != 0) {
-        printf("[WeatherNet] HTTP request FAILED: ret=%d\n", ret);
+        WEATHER_LOG("[WeatherNet] HTTP request FAILED: ret=%d\n", ret);
         network_status_set(NETWORK_STATUS_DISCONNECTED, ret);
         *response = NULL;
-        printf("[WeatherNet] ===== HTTP GET END (FAILED) =====\n");
+        WEATHER_LOG("[WeatherNet] ===== HTTP GET END (FAILED) =====\n");
         return -1;
     }
 
-    printf("[WeatherNet] HTTP status: %u\n", ctx.http_status);
-    printf("[WeatherNet] Response length: %zu bytes\n", http_resp_buf_get_len());
+    WEATHER_LOG("[WeatherNet] HTTP status: %u\n", ctx.http_status);
+    WEATHER_LOG("[WeatherNet] Response length: %zu bytes\n", http_resp_buf_get_len());
     
     if (ctx.http_status >= 200 && ctx.http_status < 300) {
         network_status_set(NETWORK_STATUS_CONNECTED, 0);
     } else {
-        printf("[WeatherNet] HTTP error status: %u\n", ctx.http_status);
+        WEATHER_LOG("[WeatherNet] HTTP error status: %u\n", ctx.http_status);
         network_status_set(NETWORK_STATUS_DISCONNECTED, ctx.http_status);
     }
 
     *response = http_resp_buf_get_data();
     ssize_t resp_len = (ssize_t)http_resp_buf_get_len();
     
-    printf("[WeatherNet] ===== HTTP GET END (SUCCESS) =====\n");
+    WEATHER_LOG("[WeatherNet] ===== HTTP GET END (SUCCESS) =====\n");
     
     // 添加短延迟，确保连接完全关闭
     usleep(50000);  // 50ms
@@ -394,26 +445,26 @@ int weather_get_location(LocationInfo *info)
     strncpy(info->city, g_weather_city, sizeof(info->city) - 1);
     strncpy(info->district, "", sizeof(info->district) - 1);
 
-    printf("[Weather] Location: %s, %s\n", info->location_id, info->city);
+    WEATHER_LOG("[Weather] Location: %s, %s\n", info->location_id, info->city);
 
     return 0;
 }
 
 static void debug_print_response(const char *tag, const char *data, size_t len)
 {
-    printf("[Weather] === %s response (len=%zu) ===\n", tag, len);
-    if (!data || len == 0) { printf("(empty)\n"); return; }
+    WEATHER_LOG("[Weather] === %s response (len=%zu) ===\n", tag, len);
+    if (!data || len == 0) { WEATHER_LOG("(empty)\n"); return; }
     for (size_t i = 0; i < len; i += 64) {
         size_t chunk = len - i;
         if (chunk > 64) chunk = 64;
         for (size_t j = 0; j < chunk; j++) {
             unsigned char c = (unsigned char)data[i + j];
             if (c >= 0x20 && c < 0x7f) putchar(c);
-            else printf("\\x%02x", c);
+            else WEATHER_LOG("\\x%02x", c);
         }
         putchar('\n');
     }
-    printf("[Weather] === end %s ===\n", tag);
+    WEATHER_LOG("[Weather] === end %s ===\n", tag);
 }
 
 /* 从和风天气API获取数据 */
@@ -428,8 +479,12 @@ int weather_get_data(WeatherData *data)
     
     // 确保位置信息已初始化
     if (!g_location_initialized) {
-        if (weather_get_location(&g_location) != 0) {
-            printf("Failed to get location\n");
+        if (g_location == NULL) {
+            g_location = calloc(1, sizeof(LocationInfo));
+            if (g_location == NULL) return -1;
+        }
+        if (weather_get_location(g_location) != 0) {
+            WEATHER_LOG("Failed to get location\n");
             return -1;
         }
         g_location_initialized = 1;
@@ -445,7 +500,7 @@ int weather_get_data(WeatherData *data)
     
     resp_len = http_get(url, &response);
     if (resp_len <= 0) {
-        printf("Failed to get current weather\n");
+        WEATHER_LOG("Failed to get current weather\n");
         return -1;
     }
     
@@ -494,7 +549,7 @@ int weather_get_data(WeatherData *data)
     
     resp_len = http_get(url, &response);
     if (resp_len <= 0) {
-        printf("Failed to get hourly weather\n");
+        WEATHER_LOG("Failed to get hourly weather\n");
         return -1;
     }
     
@@ -563,7 +618,7 @@ int weather_get_data(WeatherData *data)
     
     resp_len = http_get(url, &response);
     if (resp_len <= 0) {
-        printf("Failed to get daily weather\n");
+        WEATHER_LOG("Failed to get daily weather\n");
         return -1;
     }
     
@@ -640,7 +695,7 @@ int weather_get_data(WeatherData *data)
     
     // 静态缓冲区，无需free
     
-    printf("[Weather] Weather data retrieved successfully\n");
+    WEATHER_LOG("[Weather] Weather data retrieved successfully\n");
     return 0;
 }
 
@@ -651,20 +706,20 @@ static void mode_switch_callback(lv_event_t *e)
     
     if (btn == day_btn) {
         current_mode = 0;
-        lv_obj_add_style(day_btn, &style_btn_selected, 0);
-        lv_obj_remove_style(day_btn, &style_btn_normal, 0);
-        lv_obj_add_style(week_btn, &style_btn_normal, 0);
-        lv_obj_remove_style(week_btn, &style_btn_selected, 0);
+        lv_obj_add_style(day_btn, style_btn_selected, 0);
+        lv_obj_remove_style(day_btn, style_btn_normal, 0);
+        lv_obj_add_style(week_btn, style_btn_normal, 0);
+        lv_obj_remove_style(week_btn, style_btn_selected, 0);
         if (g_data_shown) {
             lv_obj_clear_flag(hourly_container, LV_OBJ_FLAG_HIDDEN);
             lv_obj_add_flag(daily_container, LV_OBJ_FLAG_HIDDEN);
         }
     } else if (btn == week_btn) {
         current_mode = 1;
-        lv_obj_add_style(week_btn, &style_btn_selected, 0);
-        lv_obj_remove_style(week_btn, &style_btn_normal, 0);
-        lv_obj_add_style(day_btn, &style_btn_normal, 0);
-        lv_obj_remove_style(day_btn, &style_btn_selected, 0);
+        lv_obj_add_style(week_btn, style_btn_selected, 0);
+        lv_obj_remove_style(week_btn, style_btn_normal, 0);
+        lv_obj_add_style(day_btn, style_btn_normal, 0);
+        lv_obj_remove_style(day_btn, style_btn_selected, 0);
         if (g_data_shown) {
             lv_obj_add_flag(hourly_container, LV_OBJ_FLAG_HIDDEN);
             lv_obj_clear_flag(daily_container, LV_OBJ_FLAG_HIDDEN);
@@ -712,8 +767,8 @@ static void weather_ui_refresh_timer_cb(lv_timer_t *timer)
         return;
     }
 
-    if (weather_data.hourly_count == 0 && weather_data.daily_count == 0 &&
-        weather_data.temp == 0 && weather_data.weather[0] == '\0') {
+    if (WD.hourly_count == 0 && WD.daily_count == 0 &&
+        WD.temp == 0 && WD.weather[0] == '\0') {
         if (loading_label) {
             lv_label_set_text(loading_label, "无数据");
             lv_obj_clear_flag(loading_label, LV_OBJ_FLAG_HIDDEN);
@@ -736,92 +791,92 @@ static void weather_ui_refresh_timer_cb(lv_timer_t *timer)
     }
 
     char temp_str[10];
-    sprintf(temp_str, "%d", weather_data.temp);
+    sprintf(temp_str, "%d", WD.temp);
     lv_label_set_text(temp_label, temp_str);
 
-    const void *icon_resource = get_weather_icon_resource(weather_data.icon, 1);
+    const void *icon_resource = get_weather_icon_resource(WD.icon, 1);
     lv_img_set_src(weather_icon, icon_resource);
 
-    if (weather_data.hourly_count > 0 && hourly_container) {
+    if (WD.hourly_count > 0 && hourly_container) {
         lv_obj_t *content = lv_obj_get_child(hourly_container, 0);
-        printf("[Weather] hourly: count=%d, content=%p\n", weather_data.hourly_count, content);
-        if (content) lv_obj_set_width(content, weather_data.hourly_count * 88);
-        int count = weather_data.hourly_count > 24 ? 24 : weather_data.hourly_count;
+        WEATHER_LOG("[Weather] hourly: count=%d, content=%p\n", WD.hourly_count, content);
+        if (content) lv_obj_set_width(content, WD.hourly_count * 88);
+        int count = WD.hourly_count > 24 ? 24 : WD.hourly_count;
         for (int i = 0; i < count; i++) {
             lv_obj_t *item = lv_obj_get_child(content, i);
-            if (!item) { printf("[Weather] hourly item[%d] NULL\n", i); continue; }
+            if (!item) { WEATHER_LOG("[Weather] hourly item[%d] NULL\n", i); continue; }
             lv_obj_t *time_lbl = lv_obj_get_child(item, 0);
             lv_obj_t *icon_img = lv_obj_get_child(item, 1);
             lv_obj_t *temp_lbl = lv_obj_get_child(item, 2);
-            if (time_lbl) lv_label_set_text(time_lbl, weather_data.hourly[i].time);
-            if (icon_img) lv_img_set_src(icon_img, get_weather_icon_resource(weather_data.hourly[i].icon, 0));
+            if (time_lbl) lv_label_set_text(time_lbl, WD.hourly[i].time);
+            if (icon_img) lv_img_set_src(icon_img, get_weather_icon_resource(WD.hourly[i].icon, 0));
             if (temp_lbl) {
-                char t[8]; sprintf(t, "%d℃", weather_data.hourly[i].temp);
+                char t[8]; sprintf(t, "%d℃", WD.hourly[i].temp);
                 lv_label_set_text(temp_lbl, t);
             }
-            printf("[Weather] hourly[%d]: time=%s icon=%s temp=%d\n",
-                   i, weather_data.hourly[i].time, weather_data.hourly[i].icon, weather_data.hourly[i].temp);
+            WEATHER_LOG("[Weather] hourly[%d]: time=%s icon=%s temp=%d\n",
+                   i, WD.hourly[i].time, WD.hourly[i].icon, WD.hourly[i].temp);
         }
     } else {
-        printf("[Weather] hourly: NO DATA (count=%d, container=%p)\n",
-               weather_data.hourly_count, hourly_container);
+        WEATHER_LOG("[Weather] hourly: NO DATA (count=%d, container=%p)\n",
+               WD.hourly_count, hourly_container);
     }
 
-    if (weather_data.daily_count > 0 && daily_container) {
+    if (WD.daily_count > 0 && daily_container) {
         lv_obj_t *content = lv_obj_get_child(daily_container, 0);
-        printf("[Weather] daily: count=%d, content=%p\n", weather_data.daily_count, content);
-        if (content) lv_obj_set_width(content, weather_data.daily_count * 88);
-        int count = weather_data.daily_count > 7 ? 7 : weather_data.daily_count;
+        WEATHER_LOG("[Weather] daily: count=%d, content=%p\n", WD.daily_count, content);
+        if (content) lv_obj_set_width(content, WD.daily_count * 88);
+        int count = WD.daily_count > 7 ? 7 : WD.daily_count;
         for (int i = 0; i < count; i++) {
             lv_obj_t *item = lv_obj_get_child(content, i);
-            if (!item) { printf("[Weather] daily item[%d] NULL\n", i); continue; }
+            if (!item) { WEATHER_LOG("[Weather] daily item[%d] NULL\n", i); continue; }
             lv_obj_t *day_lbl = lv_obj_get_child(item, 0);
             lv_obj_t *icon_img = lv_obj_get_child(item, 1);
             lv_obj_t *temp_lbl = lv_obj_get_child(item, 2);
-            if (day_lbl) lv_label_set_text(day_lbl, weather_data.daily[i].day);
-            if (icon_img) lv_img_set_src(icon_img, get_weather_icon_resource(weather_data.daily[i].icon, 0));
+            if (day_lbl) lv_label_set_text(day_lbl, WD.daily[i].day);
+            if (icon_img) lv_img_set_src(icon_img, get_weather_icon_resource(WD.daily[i].icon, 0));
             if (temp_lbl) {
-                char t[20]; sprintf(t, "%d/%d℃", weather_data.daily[i].temp_min, weather_data.daily[i].temp_max);
+                char t[20]; sprintf(t, "%d/%d℃", WD.daily[i].temp_min, WD.daily[i].temp_max);
                 lv_label_set_text(temp_lbl, t);
             }
-            printf("[Weather] daily[%d]: day=%s icon=%s hi=%d lo=%d\n",
-                   i, weather_data.daily[i].day, weather_data.daily[i].icon,
-                   weather_data.daily[i].temp_max, weather_data.daily[i].temp_min);
+            WEATHER_LOG("[Weather] daily[%d]: day=%s icon=%s hi=%d lo=%d\n",
+                   i, WD.daily[i].day, WD.daily[i].icon,
+                   WD.daily[i].temp_max, WD.daily[i].temp_min);
         }
     } else {
-        printf("[Weather] daily: NO DATA (count=%d, container=%p)\n",
-               weather_data.daily_count, daily_container);
+        WEATHER_LOG("[Weather] daily: NO DATA (count=%d, container=%p)\n",
+               WD.daily_count, daily_container);
     }
 
-    printf("[Weather] UI refreshed: temp=%d, icon=%s, hourly=%d, daily=%d\n",
-           weather_data.temp, weather_data.icon,
-           weather_data.hourly_count, weather_data.daily_count);
+    WEATHER_LOG("[Weather] UI refreshed: temp=%d, icon=%s, hourly=%d, daily=%d\n",
+           WD.temp, WD.icon,
+           WD.hourly_count, WD.daily_count);
 }
 
 /* 异步获取天气数据的线程 */
 static void *weather_fetch_thread(void *arg)
 {
-    printf("[Weather] Fetch thread started\n");
+    WEATHER_LOG("[Weather] Fetch thread started\n");
     g_weather_fetching = 1;
 
-    int ret = weather_get_data(&weather_data);
+    int ret = weather_get_data(weather_data_get());
     if (ret == 0) {
-        printf("[Weather] Data fetched: temp=%d, weather=%s, icon=%s, hourly=%d, daily=%d\n",
-               weather_data.temp, weather_data.weather, weather_data.icon,
-               weather_data.hourly_count, weather_data.daily_count);
-        for (int i = 0; i < weather_data.hourly_count && i < 3; i++) {
-            printf("[Weather]  hourly[%d]: time=%s temp=%d icon=%s\n",
-                   i, weather_data.hourly[i].time, weather_data.hourly[i].temp, weather_data.hourly[i].icon);
+        WEATHER_LOG("[Weather] Data fetched: temp=%d, weather=%s, icon=%s, hourly=%d, daily=%d\n",
+               WD.temp, WD.weather, WD.icon,
+               WD.hourly_count, WD.daily_count);
+        for (int i = 0; i < WD.hourly_count && i < 3; i++) {
+            WEATHER_LOG("[Weather]  hourly[%d]: time=%s temp=%d icon=%s\n",
+                   i, WD.hourly[i].time, WD.hourly[i].temp, WD.hourly[i].icon);
         }
-        for (int i = 0; i < weather_data.daily_count && i < 3; i++) {
-            printf("[Weather]  daily[%d]: day=%s hi=%d lo=%d icon=%s\n",
-                   i, weather_data.daily[i].day, weather_data.daily[i].temp_max,
-                   weather_data.daily[i].temp_min, weather_data.daily[i].icon);
+        for (int i = 0; i < WD.daily_count && i < 3; i++) {
+            WEATHER_LOG("[Weather]  daily[%d]: day=%s hi=%d lo=%d icon=%s\n",
+                   i, WD.daily[i].day, WD.daily[i].temp_max,
+                   WD.daily[i].temp_min, WD.daily[i].icon);
         }
         g_last_fetch_time = time(NULL);
     } else {
-        printf("[Weather] Failed to fetch weather data\n");
-        memset(&weather_data, 0, sizeof(weather_data));
+        WEATHER_LOG("[Weather] Failed to fetch weather data\n");
+        memset(weather_data_get(), 0, sizeof(WeatherData));
     }
 
     g_weather_fetching = 0;
@@ -843,18 +898,30 @@ static void start_weather_fetch(void)
     pthread_attr_destroy(&attr);
     
     if (ret != 0) {
-        printf("[Weather] Failed to create fetch thread: errno=%d\n", errno);
+        WEATHER_LOG("[Weather] Failed to create fetch thread: errno=%d\n", errno);
         return;
     }
     pthread_detach(tid);
-    printf("[Weather] Fetch thread created with stack size: %zu bytes\n", stack_size);
+    WEATHER_LOG("[Weather] Fetch thread created with stack size: %zu bytes\n", stack_size);
 }
 
 
 
 static void weather_app_create(void)
 {
-    printf("weather_app_create\n");
+    WEATHER_LOG("weather_app_create\n");
+
+    /* 初始化默认位置（堆分配） */
+    if (g_weather_location_id == NULL) {
+        g_weather_location_id = calloc(1, 32);
+        g_weather_city = calloc(1, 64);
+    }
+    if (g_weather_location_id[0] == '\0') {
+        strncpy(g_weather_location_id, QWEATHER_DEFAULT_LOCATION, 31);
+    }
+    if (g_weather_city[0] == '\0') {
+        strncpy(g_weather_city, QWEATHER_DEFAULT_CITY, 63);
+    }
     
     g_enter_time = time(NULL);
     g_data_shown = 0;
@@ -868,32 +935,36 @@ static void weather_app_create(void)
     lv_obj_align(weather_main_base, LV_ALIGN_CENTER, 0, 0);
     
     // 获取真实天气数据（异步）
-    memset(&weather_data, 0, sizeof(WeatherData));
+    memset(weather_data_get(), 0, sizeof(WeatherData));
     start_weather_fetch();
+
+    /* 堆分配样式 */
+    if (style_btn_normal == NULL) {
+        style_btn_normal = calloc(1, sizeof(lv_style_t));
+        style_btn_selected = calloc(1, sizeof(lv_style_t));
+    }
+    lv_style_init(style_btn_normal);
+    lv_style_set_width(style_btn_normal, 80);
+    lv_style_set_height(style_btn_normal, 60);
+    lv_style_set_radius(style_btn_normal, 21);
+    lv_style_set_bg_color(style_btn_normal, lv_color_hex(0x1A1A1A));
+    lv_style_set_text_color(style_btn_normal, lv_color_hex(0xFFFFFF));
+    lv_style_set_text_align(style_btn_normal, LV_TEXT_ALIGN_CENTER);
+    lv_style_set_text_font(style_btn_normal, vw_resource_get_font(WATCH_REGULAR_FONT "_32"));
     
-    // 初始化样式
-    lv_style_init(&style_btn_normal);
-    lv_style_set_width(&style_btn_normal, 80);
-    lv_style_set_height(&style_btn_normal, 60);
-    lv_style_set_radius(&style_btn_normal, 21);
-    lv_style_set_bg_color(&style_btn_normal, lv_color_hex(0x1A1A1A));
-    lv_style_set_text_color(&style_btn_normal, lv_color_hex(0xFFFFFF));
-    lv_style_set_text_align(&style_btn_normal, LV_TEXT_ALIGN_CENTER);
-    lv_style_set_text_font(&style_btn_normal, vw_resource_get_font(WATCH_REGULAR_FONT "_32"));
-    
-    lv_style_init(&style_btn_selected);
-    lv_style_set_width(&style_btn_selected, 80);
-    lv_style_set_height(&style_btn_selected, 60);
-    lv_style_set_radius(&style_btn_selected, 21);
-    lv_style_set_bg_color(&style_btn_selected, lv_color_hex(0x2D47CB));
-    lv_style_set_text_color(&style_btn_selected, lv_color_hex(0xFFFFFF));
-    lv_style_set_text_align(&style_btn_selected, LV_TEXT_ALIGN_CENTER);
-    lv_style_set_text_font(&style_btn_selected, vw_resource_get_font(WATCH_REGULAR_FONT "_32"));
+    lv_style_init(style_btn_selected);
+    lv_style_set_width(style_btn_selected, 80);
+    lv_style_set_height(style_btn_selected, 60);
+    lv_style_set_radius(style_btn_selected, 21);
+    lv_style_set_bg_color(style_btn_selected, lv_color_hex(0x2D47CB));
+    lv_style_set_text_color(style_btn_selected, lv_color_hex(0xFFFFFF));
+    lv_style_set_text_align(style_btn_selected, LV_TEXT_ALIGN_CENTER);
+    lv_style_set_text_font(style_btn_selected, vw_resource_get_font(WATCH_REGULAR_FONT "_32"));
     
     // 创建日按钮
     day_btn = lv_btn_create(weather_main_base);
     lv_obj_set_pos(day_btn, 113, 40);
-    lv_obj_add_style(day_btn, &style_btn_selected, 0);
+    lv_obj_add_style(day_btn, style_btn_selected, 0);
     lv_obj_add_event_cb(day_btn, mode_switch_callback, LV_EVENT_CLICKED, NULL);
     lv_obj_set_style_shadow_width(day_btn, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     
@@ -904,7 +975,7 @@ static void weather_app_create(void)
     // 创建周按钮
     week_btn = lv_btn_create(weather_main_base);
     lv_obj_set_pos(week_btn, 217, 40);
-    lv_obj_add_style(week_btn, &style_btn_normal, 0);
+    lv_obj_add_style(week_btn, style_btn_normal, 0);
     lv_obj_add_event_cb(week_btn, mode_switch_callback, LV_EVENT_CLICKED, NULL);
     lv_obj_set_style_shadow_width(week_btn, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     
@@ -916,7 +987,7 @@ static void weather_app_create(void)
     weather_icon = lv_img_create(weather_main_base);
     lv_obj_set_size(weather_icon, 100, 100);
     lv_obj_set_pos(weather_icon, 67, 158);
-    const void *icon_resource = get_weather_icon_resource(weather_data.icon, 1);
+    const void *icon_resource = get_weather_icon_resource(WD.icon, 1);
     lv_img_set_src(weather_icon, icon_resource);
     lv_obj_add_flag(weather_icon, LV_OBJ_FLAG_HIDDEN);
     
@@ -927,7 +998,7 @@ static void weather_app_create(void)
     lv_obj_set_style_text_color(temp_label, lv_color_hex(0xFFFFFF), 0);
     // 显示天气数据
     char temp_str[10];
-    sprintf(temp_str, "%d", weather_data.temp);
+    sprintf(temp_str, "%d", WD.temp);
     lv_label_set_text(temp_label, temp_str);
     lv_obj_align(temp_label, LV_ALIGN_TOP_RIGHT, -85, 141);
     lv_obj_add_flag(temp_label, LV_OBJ_FLAG_HIDDEN);
@@ -1101,7 +1172,7 @@ static void weather_app_create(void)
                 int32_t delta_y = end_point.y - start_point.y;
 
                 if(delta_x > 50 && abs(delta_x) > abs(delta_y)) {
-                    printf("right swipe, exit calendar\n");
+                    WEATHER_LOG("right swipe, exit calendar\n");
                     if (update_timer) {
                         lv_timer_del(update_timer);
                         update_timer = NULL;
@@ -1124,25 +1195,25 @@ static void weather_app_create(void)
 
 void weather_app_click_callback(lv_event_t *e)
 {
-    printf("weather_app_click_callback\n");
+    WEATHER_LOG("weather_app_click_callback\n");
     weather_app_create();
 }
 
 void weather_update_location(void)
 {
-    printf("[Weather] Updating location via IP...\n");
+    WEATHER_LOG("[Weather] Updating location via IP...\n");
 
     char *response = NULL;
     ssize_t resp_len;
 
     resp_len = http_get("http://ip-api.com/json", &response);
     if (resp_len <= 0) {
-        printf("[Weather] Failed to get IP location\n");
+        WEATHER_LOG("[Weather] Failed to get IP location\n");
         return;
     }
 
     resp_len = maybe_gunzip(&response, resp_len);
-    printf("[Weather] IP location: %s\n", response);
+    WEATHER_LOG("[Weather] IP location: %s\n", response);
 
     char city_en[32] = {0};
     char region_en[32] = {0};
@@ -1152,7 +1223,7 @@ void weather_update_location(void)
     response = NULL;
 
     if (!root) {
-        printf("[Weather] Failed to parse IP location JSON\n");
+        WEATHER_LOG("[Weather] Failed to parse IP location JSON\n");
         return;
     }
 
@@ -1168,10 +1239,10 @@ void weather_update_location(void)
     }
     cJSON_Delete(root);
 
-    printf("[Weather] Detected: city=%s, region=%s\n", city_en, region_en);
+    WEATHER_LOG("[Weather] Detected: city=%s, region=%s\n", city_en, region_en);
 
     if (city_en[0] == '\0') {
-        printf("[Weather] Failed to get city from IP location\n");
+        WEATHER_LOG("[Weather] Failed to get city from IP location\n");
         return;
     }
 
@@ -1183,11 +1254,11 @@ void weather_update_location(void)
         snprintf(url, sizeof(url), "%s?location=%s&key=%s",
                  QWEATHER_GEO_URL, city_en, QWEATHER_API_KEY);
 
-    printf("[Weather] GeoAPI URL: %s\n", url);
+    WEATHER_LOG("[Weather] GeoAPI URL: %s\n", url);
 
     resp_len = http_get(url, &response);
     if (resp_len <= 0) {
-        printf("[Weather] GeoAPI failed, keeping default location\n");
+        WEATHER_LOG("[Weather] GeoAPI failed, keeping default location\n");
         return;
     }
 
@@ -1207,26 +1278,24 @@ void weather_update_location(void)
                     cJSON *name_obj = cJSON_GetObjectItem(first, "name");
 
                     if (id_obj && cJSON_IsString(id_obj)) {
-                        strncpy(g_weather_location_id, id_obj->valuestring,
-                                sizeof(g_weather_location_id) - 1);
-                        g_weather_location_id[sizeof(g_weather_location_id) - 1] = '\0';
+                        strncpy(g_weather_location_id, id_obj->valuestring, 31);
+                        g_weather_location_id[31] = '\0';
                     }
                     if (name_obj && cJSON_IsString(name_obj)) {
-                        strncpy(g_weather_city, name_obj->valuestring,
-                                sizeof(g_weather_city) - 1);
-                        g_weather_city[sizeof(g_weather_city) - 1] = '\0';
+                        strncpy(g_weather_city, name_obj->valuestring, 63);
+                        g_weather_city[63] = '\0';
                     }
 
-                    printf("[Weather] Location updated: %s (%s)\n",
+                    WEATHER_LOG("[Weather] Location updated: %s (%s)\n",
                            g_weather_city, g_weather_location_id);
                 }
             }
         } else {
-            printf("[Weather] GeoAPI returned non-200, keeping default\n");
+            WEATHER_LOG("[Weather] GeoAPI returned non-200, keeping default\n");
         }
         cJSON_Delete(root);
     } else {
-        printf("[Weather] GeoAPI JSON parse failed\n");
+        WEATHER_LOG("[Weather] GeoAPI JSON parse failed\n");
     }
 
     // 静态缓冲区，无需free

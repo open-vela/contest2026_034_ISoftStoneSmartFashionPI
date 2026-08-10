@@ -9,6 +9,12 @@
 #include <sys/socket.h>
 #include <netdb.h>
 
+#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
+#  define WEATHER_TLS_LOG(fmt, ...) printf(fmt, ##__VA_ARGS__)
+#else
+#  define WEATHER_TLS_LOG(fmt, ...)
+#endif
+
 #include <mbedtls/ssl.h>
 #include <mbedtls/entropy.h>
 #include <mbedtls/ctr_drbg.h>
@@ -37,7 +43,7 @@ static void net_init(int *fd) { *fd = -1; }
 static int net_connect_with_timeout(int *fd, const char *host, const char *port, 
                                      unsigned int timeout_sec)
 {
-    printf("[WeatherTLS] Resolving hostname: %s:%s\n", host, port);
+    WEATHER_TLS_LOG("[WeatherTLS] Resolving hostname: %s:%s\n", host, port);
     
     struct addrinfo hints, *list, *cur;
     memset(&hints, 0, sizeof(hints));
@@ -47,17 +53,17 @@ static int net_connect_with_timeout(int *fd, const char *host, const char *port,
 
     int gai_ret = getaddrinfo(host, port, &hints, &list);
     if (gai_ret != 0) {
-        printf("[WeatherTLS] DNS resolution failed: gai_error=%d\n", gai_ret);
+        WEATHER_TLS_LOG("[WeatherTLS] DNS resolution failed: gai_error=%d\n", gai_ret);
         return MBEDTLS_ERR_NET_UNKNOWN_HOST;
     }
-    printf("[WeatherTLS] DNS resolution succeeded\n");
+    WEATHER_TLS_LOG("[WeatherTLS] DNS resolution succeeded\n");
 
     int ret = MBEDTLS_ERR_NET_UNKNOWN_HOST;
     for (cur = list; cur; cur = cur->ai_next) {
         int s = socket(cur->ai_family, cur->ai_socktype, cur->ai_protocol);
         if (s < 0) { 
             ret = MBEDTLS_ERR_NET_SOCKET_FAILED; 
-            printf("[WeatherTLS] Socket creation failed: errno=%d\n", errno);
+            WEATHER_TLS_LOG("[WeatherTLS] Socket creation failed: errno=%d\n", errno);
             continue; 
         }
 
@@ -70,7 +76,7 @@ static int net_connect_with_timeout(int *fd, const char *host, const char *port,
         if (conn_ret == 0) {
             *fd = s; 
             ret = 0; 
-            printf("[WeatherTLS] Connected immediately\n");
+            WEATHER_TLS_LOG("[WeatherTLS] Connected immediately\n");
             break;
         }
 
@@ -90,20 +96,20 @@ static int net_connect_with_timeout(int *fd, const char *host, const char *port,
                 if (err == 0) {
                     *fd = s; 
                     ret = 0;
-                    printf("[WeatherTLS] Connected after select\n");
+                    WEATHER_TLS_LOG("[WeatherTLS] Connected after select\n");
                     break;
                 } else {
-                    printf("[WeatherTLS] Connect failed after select: err=%d\n", err);
+                    WEATHER_TLS_LOG("[WeatherTLS] Connect failed after select: err=%d\n", err);
                 }
             } else if (sel_ret == 0) {
-                printf("[WeatherTLS] Connect timeout after %u seconds\n", timeout_sec);
+                WEATHER_TLS_LOG("[WeatherTLS] Connect timeout after %u seconds\n", timeout_sec);
                 ret = MBEDTLS_ERR_NET_CONNECT_FAILED;
             } else {
-                printf("[WeatherTLS] Select error: errno=%d\n", errno);
+                WEATHER_TLS_LOG("[WeatherTLS] Select error: errno=%d\n", errno);
                 ret = MBEDTLS_ERR_NET_CONNECT_FAILED;
             }
         } else {
-            printf("[WeatherTLS] Connect failed immediately: errno=%d\n", errno);
+            WEATHER_TLS_LOG("[WeatherTLS] Connect failed immediately: errno=%d\n", errno);
             ret = MBEDTLS_ERR_NET_CONNECT_FAILED;
         }
         
@@ -112,7 +118,7 @@ static int net_connect_with_timeout(int *fd, const char *host, const char *port,
     freeaddrinfo(list);
     
     if (ret != 0) {
-        printf("[WeatherTLS] Connection failed, returning %d\n", ret);
+        WEATHER_TLS_LOG("[WeatherTLS] Connection failed, returning %d\n", ret);
     }
     return ret;
 }
@@ -171,7 +177,7 @@ static int weather_tls_connect(void *ctx, const char *hostname,
     ret = esp_mbedtls_ctr_drbg_seed(&tc->ctr_drbg, esp_mbedtls_entropy_func,
                                     &tc->entropy, NULL, 0);
     if (ret != 0) {
-        printf("[WeatherTLS] ctr_drbg_seed failed: -0x%x, trying /dev/urandom\n", -ret);
+        WEATHER_TLS_LOG("[WeatherTLS] ctr_drbg_seed failed: -0x%x, trying /dev/urandom\n", -ret);
         esp_mbedtls_entropy_free(&tc->entropy);
         esp_mbedtls_ctr_drbg_free(&tc->ctr_drbg);
         esp_mbedtls_entropy_init(&tc->entropy);
@@ -187,7 +193,7 @@ static int weather_tls_connect(void *ctx, const char *hostname,
         }
     }
     if (ret != 0) {
-        printf("[WeatherTLS] ctr_drbg_seed failed: -0x%x\n", -ret);
+        WEATHER_TLS_LOG("[WeatherTLS] ctr_drbg_seed failed: -0x%x\n", -ret);
         goto cleanup;
     }
 
@@ -198,23 +204,23 @@ static int weather_tls_connect(void *ctx, const char *hostname,
         strncpy(port_str, "443", sizeof(port_str) - 1);
     port_str[sizeof(port_str) - 1] = '\0';
 
-    printf("[WeatherTLS] ===== TLS Connect Start =====\n");
-    printf("[WeatherTLS] Host: %s, Port: %s, Timeout: %u\n", hostname, port_str, timeout_second);
+    WEATHER_TLS_LOG("[WeatherTLS] ===== TLS Connect Start =====\n");
+    WEATHER_TLS_LOG("[WeatherTLS] Host: %s, Port: %s, Timeout: %u\n", hostname, port_str, timeout_second);
 
     unsigned int conn_timeout = (timeout_second > 0) ? timeout_second : 10;
     ret = net_connect_with_timeout(&tc->fd, hostname, port_str, conn_timeout);
     if (ret != 0) {
-        printf("[WeatherTLS] Connection failed: ret=%d (-0x%x)\n", ret, -ret);
+        WEATHER_TLS_LOG("[WeatherTLS] Connection failed: ret=%d (-0x%x)\n", ret, -ret);
         goto cleanup;
     }
-    printf("[WeatherTLS] TCP connection established\n");
+    WEATHER_TLS_LOG("[WeatherTLS] TCP connection established\n");
 
     ret = esp_mbedtls_ssl_config_defaults(&tc->conf,
                                           MBEDTLS_SSL_IS_CLIENT,
                                           MBEDTLS_SSL_TRANSPORT_STREAM,
                                           MBEDTLS_SSL_PRESET_DEFAULT);
     if (ret != 0) {
-        printf("[WeatherTLS] ssl_config_defaults failed: -0x%x\n", -ret);
+        WEATHER_TLS_LOG("[WeatherTLS] ssl_config_defaults failed: -0x%x\n", -ret);
         goto cleanup;
     }
 
@@ -224,44 +230,44 @@ static int weather_tls_connect(void *ctx, const char *hostname,
 
     ret = esp_mbedtls_ssl_setup(&tc->ssl, &tc->conf);
     if (ret != 0) {
-        printf("[WeatherTLS] ssl_setup failed: -0x%x\n", -ret);
+        WEATHER_TLS_LOG("[WeatherTLS] ssl_setup failed: -0x%x\n", -ret);
         goto cleanup;
     }
 
     ret = esp_mbedtls_ssl_set_hostname(&tc->ssl, hostname);
     if (ret != 0) {
-        printf("[WeatherTLS] set_hostname failed: -0x%x\n", -ret);
+        WEATHER_TLS_LOG("[WeatherTLS] set_hostname failed: -0x%x\n", -ret);
         goto cleanup;
     }
 
     esp_mbedtls_ssl_set_bio(&tc->ssl, &tc->fd, net_send, net_recv, NULL);
 
-    printf("[WeatherTLS] Starting TLS handshake...\n");
+    WEATHER_TLS_LOG("[WeatherTLS] Starting TLS handshake...\n");
     int handshake_attempts = 0;
     const int max_handshake_attempts = 10;  // 增加重试次数
     
     while ((ret = esp_mbedtls_ssl_handshake(&tc->ssl)) != 0) {
         handshake_attempts++;
         if (ret == MBEDTLS_ERR_SSL_WANT_READ) {
-            printf("[WeatherTLS] Handshake waiting for read (attempt %d)\n", handshake_attempts);
+            WEATHER_TLS_LOG("[WeatherTLS] Handshake waiting for read (attempt %d)\n", handshake_attempts);
             usleep(10000);  // 10ms等待
         } else if (ret == MBEDTLS_ERR_SSL_WANT_WRITE) {
-            printf("[WeatherTLS] Handshake waiting for write (attempt %d)\n", handshake_attempts);
+            WEATHER_TLS_LOG("[WeatherTLS] Handshake waiting for write (attempt %d)\n", handshake_attempts);
             usleep(10000);  // 10ms等待
         } else {
-            printf("[WeatherTLS] Handshake failed: ret=%d (-0x%x)\n", ret, -ret);
+            WEATHER_TLS_LOG("[WeatherTLS] Handshake failed: ret=%d (-0x%x)\n", ret, -ret);
             goto cleanup;
         }
         
         if (handshake_attempts >= max_handshake_attempts) {
-            printf("[WeatherTLS] Handshake timeout after %d attempts\n", max_handshake_attempts);
+            WEATHER_TLS_LOG("[WeatherTLS] Handshake timeout after %d attempts\n", max_handshake_attempts);
             ret = -ETIMEDOUT;
             goto cleanup;
         }
     }
 
-    printf("[WeatherTLS] TLS handshake completed successfully\n");
-    printf("[WeatherTLS] ===== TLS Connect End (SUCCESS) =====\n");
+    WEATHER_TLS_LOG("[WeatherTLS] TLS handshake completed successfully\n");
+    WEATHER_TLS_LOG("[WeatherTLS] ===== TLS Connect End (SUCCESS) =====\n");
     *connp = (struct webclient_tls_connection *)tc;
     return 0;
 

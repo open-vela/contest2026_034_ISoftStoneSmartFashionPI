@@ -71,7 +71,7 @@ static int         s_curr_index   = 0;     /* 当前表情索引 */
 static int         s_expr_count   = 0;     /* 表情图片总数 */
 
 /* 页面栈：用于跟踪二级/三级子页面 */
-static lv_obj_t *s_page_stack[MAX_PAGE_STACK_SIZE];
+static lv_obj_t **s_page_stack = NULL;
 static int       s_page_stack_size = 0;
 
 /****************************************************************************
@@ -254,6 +254,15 @@ int lv_watch_push_page(lv_obj_t *page)
   if (page == NULL)
     {
       return -1;
+    }
+
+  if (s_page_stack == NULL)
+    {
+      s_page_stack = calloc(MAX_PAGE_STACK_SIZE, sizeof(lv_obj_t *));
+      if (s_page_stack == NULL)
+        {
+          return -3;
+        }
     }
 
   if (s_page_stack_size >= MAX_PAGE_STACK_SIZE)

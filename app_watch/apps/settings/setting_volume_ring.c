@@ -6,6 +6,12 @@
 #include <stdio.h>
 #include <arch/board/board.h>
 
+#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
+#  define VOLUME_LOG(fmt, ...) printf("[VOLUME] " fmt "\n", ##__VA_ARGS__)
+#else
+#  define VOLUME_LOG(fmt, ...)
+#endif
+
 /* UI对象 */
 static lv_obj_t* volume_set_base = NULL;
 static lv_obj_t *volume_container = NULL;
@@ -95,7 +101,7 @@ static void setting_volume_set_create(void)
     esp32s3_watch_audio_play_onetime(WATCH_AUDIO_PLAYER_TEST_FILE,
                                       volume_level_to_value(current_volume_level));
 
-    printf("volume_set: create complete, vol=%d level=%d\n", cur_vol, current_volume_level);
+    VOLUME_LOG("volume_set: create complete, vol=%d level=%d", cur_vol, current_volume_level);
 }
 
 
@@ -140,7 +146,7 @@ static void volume_bar_event_cb(lv_event_t *e)
             int vol_value = volume_level_to_value(current_volume_level);
             esp32s3_watch_audio_setvolume(vol_value);
 
-            printf("Set volume to level %d, value %d\n", current_volume_level, vol_value);
+            VOLUME_LOG("Set volume to level %d, value %d", current_volume_level, vol_value);
         }
     }
 }
@@ -193,7 +199,7 @@ void settings_volume_ring_event_cb(lv_event_t *e)
 {
     lv_event_code_t code = lv_event_get_code(e);
     if (code == LV_EVENT_CLICKED) {
-        printf("Settings volume ring button click.\n");
+        VOLUME_LOG("Settings volume ring button click.");
         setting_volume_set_create();
     }
 }

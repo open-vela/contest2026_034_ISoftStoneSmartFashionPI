@@ -42,11 +42,12 @@ CFLAGS += -I$(TOPDIR)/arch/xtensa/src/esp32s3/esp-hal-3rdparty/nuttx/include
 CFLAGS += -I$(TOPDIR)/arch/xtensa/src/esp32s3/esp-hal-3rdparty/components/mbedtls/port/include
 LIBS += -lmbedtls -lmbedcrypto -lmbedx509
 
-# Apps source files (boot + launcher + common + settings + home_control + volume_control)
+# Apps source files (boot + launcher + common + home_control + volume_control)
 CSRCS += $(shell find ./apps/boot -name "*.c")
 CSRCS += $(shell find ./apps/launcher -name "*.c")
 CSRCS += $(shell find ./apps/common -name "*.c")
-CSRCS += $(shell find ./apps/settings -name "*.c")
+# 表情UI设置界面已禁用，使用手表UI的设置界面（app_watch/apps/settings/）
+# CSRCS += $(shell find ./apps/settings -name "*.c")
 CSRCS += $(shell find ./apps/home_control -name "*.c")
 CSRCS += $(shell find ./apps/volume_control -name "*.c")
 
@@ -85,14 +86,18 @@ CSRCS += $(shell find $(VENDOR_WATCH_DIR)/apps/settings -name "*.c")
 CSRCS += $(shell find $(VENDOR_WATCH_DIR)/apps/sos -name "*.c")
 CSRCS += $(shell find $(VENDOR_WATCH_DIR)/apps/sports -name "*.c")
 CSRCS += $(shell find $(VENDOR_WATCH_DIR)/apps/stopwatch -name "*.c")
-# CSRCS += $(shell find $(VENDOR_WATCH_DIR)/apps/weather -name "*.c")  # Excluded: too much DRAM (40KB+ static buffers)
+CSRCS += $(shell find $(VENDOR_WATCH_DIR)/apps/weather -name "*.c")
+CSRCS += $(shell find $(VENDOR_WATCH_DIR)/apps/xiaozhi_ai -name "*.c")
 
 # app_watch resource manager
 CSRCS += $(VENDOR_WATCH_DIR)/resource/resource.c
 
 # app_watch generated assets (images, fonts, power animations)
 CSRCS += $(wildcard $(VENDOR_WATCH_DIR)/resource/image/generated/*.c)
-CSRCS += $(wildcard $(VENDOR_WATCH_DIR)/resource/font/generated/*.c)
+# Exclude AlibabaPuHuiTi font (removed to save ~163KB DRAM)
+# Exclude duplicate MiSans_Regular.c (already provided by app/watch/resource/font/generated/)
+VW_FONT_CSRCS := $(filter-out %AlibabaPuHuiTi_3_55_Regular.c %MiSans_Regular.c, $(wildcard $(VENDOR_WATCH_DIR)/resource/font/generated/*.c))
+CSRCS += $(VW_FONT_CSRCS)
 CSRCS += $(wildcard $(VENDOR_WATCH_DIR)/resource/power_jpg/generated/*.c)
 CSRCS += $(wildcard $(VENDOR_WATCH_DIR)/resource/power_png/generated/*.c)
 

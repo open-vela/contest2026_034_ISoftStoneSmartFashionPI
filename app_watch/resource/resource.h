@@ -87,6 +87,36 @@ const void* vw_resource_get_img_power(const char* key);
  */
 void vw_resource_debug_print_fonts(void);
 
+/**
+ * Get the embedded bootlogo GIF image descriptor (legacy, kept for compatibility).
+ * @return A pointer to lv_image_dsc_t containing raw GIF data.
+ */
+const void* watch_resource_get_bootlogo_gif(void);
+
+/**
+ * Get the expression UI boot logo GIF.
+ * @return A pointer to lv_image_dsc_t containing raw GIF data.
+ */
+const void* watch_resource_get_expr_logo_gif(void);
+
+/**
+ * Get the expression UI boot animation GIF.
+ * @return A pointer to lv_image_dsc_t containing raw GIF data.
+ */
+const void* watch_resource_get_expr_anim_gif(void);
+
+/**
+ * Get the watch UI boot logo GIF.
+ * @return A pointer to lv_image_dsc_t containing raw GIF data.
+ */
+const void* watch_resource_get_watch_logo_gif(void);
+
+/**
+ * Get the watch UI boot animation GIF.
+ * @return A pointer to lv_image_dsc_t containing raw GIF data.
+ */
+const void* watch_resource_get_watch_anim_gif(void);
+
 /**********************
  *      MACROS
  **********************/

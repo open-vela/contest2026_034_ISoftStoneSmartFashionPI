@@ -45,6 +45,7 @@ void settings_display_event_cb(lv_event_t *e);
 void settings_volume_ring_event_cb(lv_event_t *e);
 void settings_system_event_cb(lv_event_t *e);
 void settings_about_event_cb(lv_event_t *e);
+void settings_ui_mode_event_cb(lv_event_t *e);
 void setting_charging_create(void);
 
 

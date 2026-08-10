@@ -51,15 +51,36 @@ static const char WEBSOCKET_GUID[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 static int g_ws_sockfd = -1;
 static bool g_use_ssl = true;
 static ws_connection_state_t g_ws_state = WS_STATE_DISCONNECTED;
-static char g_uuid[64] = {0};
-static char g_mac[32] = {0};
+static char *g_uuid = NULL;  /* 堆分配节省 64B BSS */
+static char *g_mac = NULL;   /* 堆分配节省 32B BSS */
 
-/* SSL/TLS上下文 */
-static mbedtls_ssl_context g_ssl_ctx;
-static mbedtls_ssl_config g_ssl_conf;
-static mbedtls_entropy_context g_entropy;
-static mbedtls_ctr_drbg_context g_ctr_drbg;
-static mbedtls_x509_crt g_cacert;
+/* SSL/TLS上下文 — 堆分配节省 ~1.7KB BSS */
+static mbedtls_ssl_context *g_ssl_ctx = NULL;
+static mbedtls_ssl_config *g_ssl_conf = NULL;
+static mbedtls_entropy_context *g_entropy = NULL;
+static mbedtls_ctr_drbg_context *g_ctr_drbg = NULL;
+static mbedtls_x509_crt *g_cacert = NULL;
+
+static int ssl_ctx_alloc(void)
+{
+    g_ssl_ctx = calloc(1, sizeof(*g_ssl_ctx));
+    g_ssl_conf = calloc(1, sizeof(*g_ssl_conf));
+    g_entropy = calloc(1, sizeof(*g_entropy));
+    g_ctr_drbg = calloc(1, sizeof(*g_ctr_drbg));
+    g_cacert = calloc(1, sizeof(*g_cacert));
+    if (!g_ssl_ctx || !g_ssl_conf || !g_entropy || !g_ctr_drbg || !g_cacert)
+        return -1;
+    return 0;
+}
+
+static void ssl_ctx_free(void)
+{
+    free(g_ssl_ctx); g_ssl_ctx = NULL;
+    free(g_ssl_conf); g_ssl_conf = NULL;
+    free(g_entropy); g_entropy = NULL;
+    free(g_ctr_drbg); g_ctr_drbg = NULL;
+    free(g_cacert); g_cacert = NULL;
+}
 
 /* mbedtls时间函数 */
 mbedtls_ms_time_t esp_mbedtls_ms_time(void);
@@ -101,6 +122,11 @@ static char *generate_uuid(void)
     if (!seeded) {
         srand((unsigned int)time(NULL));
         seeded = 1;
+    }
+
+    if (g_uuid == NULL) {
+        g_uuid = calloc(1, 64);
+        if (g_uuid == NULL) return "00000000-0000-0000-0000-000000000000";
     }
 
     const char *hex = "0123456789abcdef";
@@ -278,20 +304,24 @@ static int ssl_init(const char *hostname)
 {
     int ret;
 
-    mbedtls_ssl_init(&g_ssl_ctx);
-    mbedtls_ssl_config_init(&g_ssl_conf);
-    mbedtls_entropy_init(&g_entropy);
-    mbedtls_ctr_drbg_init(&g_ctr_drbg);
-    mbedtls_x509_crt_init(&g_cacert);
+    if (ssl_ctx_alloc() != 0) {
+        return -1;
+    }
 
-    ret = mbedtls_ctr_drbg_seed(&g_ctr_drbg, mbedtls_entropy_func, &g_entropy,
+    mbedtls_ssl_init(g_ssl_ctx);
+    mbedtls_ssl_config_init(g_ssl_conf);
+    mbedtls_entropy_init(g_entropy);
+    mbedtls_ctr_drbg_init(g_ctr_drbg);
+    mbedtls_x509_crt_init(g_cacert);
+
+    ret = mbedtls_ctr_drbg_seed(g_ctr_drbg, mbedtls_entropy_func, g_entropy,
                                 (const unsigned char *)hostname, strlen(hostname));
     if (ret != 0) {
         LOG_ERROR("ctr_drbg_seed failed: %d", ret);
         goto error;
     }
 
-    ret = mbedtls_ssl_config_defaults(&g_ssl_conf, MBEDTLS_SSL_IS_CLIENT,
+    ret = mbedtls_ssl_config_defaults(g_ssl_conf, MBEDTLS_SSL_IS_CLIENT,
                                       MBEDTLS_SSL_TRANSPORT_STREAM,
                                       MBEDTLS_SSL_PRESET_DEFAULT);
     if (ret != 0) {
@@ -299,28 +329,29 @@ static int ssl_init(const char *hostname)
         goto error;
     }
 
-    mbedtls_ssl_conf_authmode(&g_ssl_conf, MBEDTLS_SSL_VERIFY_NONE);
-    mbedtls_ssl_conf_rng(&g_ssl_conf, mbedtls_ctr_drbg_random, &g_ctr_drbg);
-    mbedtls_ssl_conf_ca_chain(&g_ssl_conf, &g_cacert, NULL);
+    mbedtls_ssl_conf_authmode(g_ssl_conf, MBEDTLS_SSL_VERIFY_NONE);
+    mbedtls_ssl_conf_rng(g_ssl_conf, mbedtls_ctr_drbg_random, g_ctr_drbg);
+    mbedtls_ssl_conf_ca_chain(g_ssl_conf, g_cacert, NULL);
 
-    ret = mbedtls_ssl_setup(&g_ssl_ctx, &g_ssl_conf);
+    ret = mbedtls_ssl_setup(g_ssl_ctx, g_ssl_conf);
     if (ret != 0) {
         LOG_ERROR("ssl_setup failed: %d", ret);
         goto error;
     }
 
-    mbedtls_ssl_set_bio(&g_ssl_ctx, (void *)(intptr_t)g_ws_sockfd,
+    mbedtls_ssl_set_bio(g_ssl_ctx, (void *)(intptr_t)g_ws_sockfd,
                         mbedtls_net_send, mbedtls_net_recv, NULL);
 
     LOG_OK("SSL context initialized");
     return 0;
 
 error:
-    mbedtls_x509_crt_free(&g_cacert);
-    mbedtls_ctr_drbg_free(&g_ctr_drbg);
-    mbedtls_entropy_free(&g_entropy);
-    mbedtls_ssl_config_free(&g_ssl_conf);
-    mbedtls_ssl_free(&g_ssl_ctx);
+    mbedtls_x509_crt_free(g_cacert);
+    mbedtls_ctr_drbg_free(g_ctr_drbg);
+    mbedtls_entropy_free(g_entropy);
+    mbedtls_ssl_config_free(g_ssl_conf);
+    mbedtls_ssl_free(g_ssl_ctx);
+    ssl_ctx_free();
     return ret;
 }
 
@@ -329,8 +360,8 @@ static int ssl_handshake(void)
     int ret;
     LOG_INFO("Starting SSL handshake...");
 
-    while (!mbedtls_ssl_is_handshake_over(&g_ssl_ctx)) {
-        ret = mbedtls_ssl_handshake_step(&g_ssl_ctx);
+    while (!mbedtls_ssl_is_handshake_over(g_ssl_ctx)) {
+        ret = mbedtls_ssl_handshake_step(g_ssl_ctx);
         if (ret != 0 && ret != MBEDTLS_ERR_SSL_WANT_READ &&
             ret != MBEDTLS_ERR_SSL_WANT_WRITE) {
             LOG_ERROR("SSL handshake step failed: %d", ret);
@@ -353,7 +384,7 @@ static int ssl_write(const unsigned char *buf, size_t len)
     size_t written = 0;
 
     while (written < len) {
-        ret = mbedtls_ssl_write(&g_ssl_ctx, buf + written, len - written);
+        ret = mbedtls_ssl_write(g_ssl_ctx, buf + written, len - written);
         if (ret <= 0) {
             if (ret == MBEDTLS_ERR_SSL_WANT_READ ||
                 ret == MBEDTLS_ERR_SSL_WANT_WRITE) {
@@ -384,7 +415,7 @@ static int ssl_read(unsigned char *buf, size_t len, int timeout_ms)
                          (now.tv_usec - start.tv_usec) / 1000;
         if (elapsed_ms >= timeout_ms) return -2;
 
-        int ret = mbedtls_ssl_read(&g_ssl_ctx, buf, len);
+        int ret = mbedtls_ssl_read(g_ssl_ctx, buf, len);
         if (ret <= 0) {
             if (ret == MBEDTLS_ERR_SSL_WANT_READ ||
                 ret == MBEDTLS_ERR_SSL_WANT_WRITE) {
@@ -400,12 +431,13 @@ static int ssl_read(unsigned char *buf, size_t len, int timeout_ms)
 
 static void ssl_close(void)
 {
-    if (g_use_ssl) {
-        mbedtls_x509_crt_free(&g_cacert);
-        mbedtls_ctr_drbg_free(&g_ctr_drbg);
-        mbedtls_entropy_free(&g_entropy);
-        mbedtls_ssl_config_free(&g_ssl_conf);
-        mbedtls_ssl_free(&g_ssl_ctx);
+    if (g_use_ssl && g_ssl_ctx) {
+        mbedtls_x509_crt_free(g_cacert);
+        mbedtls_ctr_drbg_free(g_ctr_drbg);
+        mbedtls_entropy_free(g_entropy);
+        mbedtls_ssl_config_free(g_ssl_conf);
+        mbedtls_ssl_free(g_ssl_ctx);
+        ssl_ctx_free();
     }
 }
 
@@ -588,15 +620,19 @@ static int ws_receive_frame(char *buffer, int max_len, int timeout_ms)
 
 int xiaozhi_ai_ws_init(void)
 {
+    /* 分配 MAC 和 UUID 缓冲区 */
+    if (g_mac == NULL) g_mac = calloc(1, 32);
+    if (g_mac == NULL) return -1;
+
     /* 获取MAC地址 */
     char *mac = get_wireless_mac_address();
     if (mac) {
-        strncpy(g_mac, mac, sizeof(g_mac) - 1);
-        g_mac[sizeof(g_mac) - 1] = '\0';
+        strncpy(g_mac, mac, 31);
+        g_mac[31] = '\0';
         LOG_INFO("MAC: %s", g_mac);
     } else {
         LOG_WARN("Failed to get MAC address");
-        strncpy(g_mac, "00:00:00:00:00:00", sizeof(g_mac) - 1);
+        strncpy(g_mac, "00:00:00:00:00:00", 31);
     }
 
     /* 生成UUID */

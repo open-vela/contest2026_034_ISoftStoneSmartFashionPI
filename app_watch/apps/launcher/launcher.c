@@ -42,6 +42,12 @@
 #include <nuttx/power/pm.h>
 #include "../settings/settings.h"
 
+#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
+#  define LAUNCHER_LOG(fmt, ...) printf("[LAUNCHER] " fmt "\n", ##__VA_ARGS__)
+#else
+#  define LAUNCHER_LOG(fmt, ...)
+#endif
+
 /* 充电界面操作函数声明 */
 extern void setting_charging_create(void);
 extern void setting_charging_destroy(void);
@@ -111,7 +117,7 @@ static void goto_next_state(void)
 
         /* 销毁logo并显示动画 */
         boot_logo_deinit(current_obj);
-        printf("goto_next_state:  boot_animation init, start load power anim: %p\n", current_obj);
+        LAUNCHER_LOG("boot_animation init, start load power anim: %p", current_obj);
         current_obj = boot_animation_init(content_area);
         lv_task_handler();
         
@@ -123,7 +129,7 @@ static void goto_next_state(void)
       case STATE_SHOW_ANIM:
         /* 切换到显示时钟状态 */
         current_state = STATE_SHOW_CLOCK;
-        printf("goto_next_state: destory power anim, start dial init\n");
+        LAUNCHER_LOG("destory power anim, start dial init");
 
         /* 销毁动画并显示时钟 */
         boot_animation_deinit(current_obj);
@@ -133,12 +139,12 @@ static void goto_next_state(void)
         pm_stay(PM_IDLE_DOMAIN, PM_NORMAL);
         display_set_timeout(10);
         ft3168_display_timeout_setup();
-        printf("dial init complete: %p\n", current_obj);
+        LAUNCHER_LOG("dial init complete: %p", current_obj);
 
         /* 启动充电状态检测定时器 (1秒检测一次) */
         if (charging_timer == NULL) {
             // charging_timer = lv_timer_create(charging_monitor_cb, 1000, NULL);
-            printf("[CHARGE] Charging monitor timer started\n");
+            LAUNCHER_LOG("[CHARGE] Charging monitor timer started");
         }
 
         /* 读取抬腕亮屏配置 */
@@ -163,7 +169,7 @@ static void goto_next_state(void)
 static void __attribute__((unused)) charging_monitor_cb(lv_timer_t *timer)
 {
     uint8_t charge_status = axp2101_get_pmu_charge_status();
-    printf("[CHARGE] Charge status: %#X\n", charge_status);
+    LAUNCHER_LOG("[CHARGE] Charge status: %#X", charge_status);
     
     // 如果正在充电，显示充电界面
     if (charge_status == 1) {
@@ -214,10 +220,10 @@ int vw_launcher_init(lv_obj_t *parent)
   lv_obj_center(content_area);
 
   /* 启动主页流程 */
-  current_state = STATE_INIT;
-//   current_state = STATE_SHOW_ANIM;
+  /* 开机logo和动画已由 NuttX launcher (app/watch/apps/launcher/launcher.c)
+   * 完成，此处直接跳过开机流程，进入表盘界面 */
+  current_state = STATE_SHOW_ANIM;
   goto_next_state();
-// dial_init(content_area);
 
   return 0;
 }
@@ -237,7 +243,7 @@ int vw_watch_push_page(lv_obj_t *page)
     if (page_stack_size >= MAX_PAGE_STACK_SIZE) {
         return -2;
     }
-    fprintf(stderr, "push page to stack: %p\n", page);
+    LAUNCHER_LOG("push page to stack: %p", page);
 
     page_stack[page_stack_size++] = page;
     return 0;
@@ -265,7 +271,7 @@ int vw_watch_pop_page(lv_obj_t *page)
     if (i >= page_stack_size) {
         return -2;
     }
-    fprintf(stderr, "pop page from stack: %p\n", page);
+    LAUNCHER_LOG("pop page from stack: %p", page);
 
     for (; i < page_stack_size - 1; i++) {
         page_stack[i] = page_stack[i + 1];
@@ -282,41 +288,33 @@ int vw_watch_pop_page(lv_obj_t *page)
  */
 int lv_watch_back_go_home(void)
 {
-    printf("[BACK_HOME] Start: returning to dial...\n");
-    fflush(stdout);
+    LAUNCHER_LOG("[BACK_HOME] Start: returning to dial...");
     
     /* 先显示隐藏的表盘 */
     if (dial_get_container() != NULL) {
-        printf("[BACK_HOME] Showing dial\n");
-        fflush(stdout);
+        LAUNCHER_LOG("[BACK_HOME] Showing dial");
         dial_show();
-        printf("[BACK_HOME] Dial displayed\n");
-        fflush(stdout);
+        LAUNCHER_LOG("[BACK_HOME] Dial displayed");
     } else {
-        printf("[BACK_HOME] ERROR: dial_container is NULL\n");
-        fflush(stdout);
+        LAUNCHER_LOG("[BACK_HOME] ERROR: dial_container is NULL");
         return -1;
     }
 
     /* 再删除页面栈中的所有页面 */
-    printf("[BACK_HOME] Deleting %d pages from stack\n", page_stack_size);
-    fflush(stdout);
+    LAUNCHER_LOG("[BACK_HOME] Deleting %d pages from stack", page_stack_size);
     
     /* 反向删除页面栈（从栈顶开始） */
     for (int i = page_stack_size - 1; i >= 0; i--) {
         if (page_stack[i] != NULL) {
-            printf("[BACK_HOME] Deleting page_stack[%d]: %p\n", i, page_stack[i]);
-            fflush(stdout);
+            LAUNCHER_LOG("[BACK_HOME] Deleting page_stack[%d]: %p", i, page_stack[i]);
             lv_obj_del_async(page_stack[i]);
             page_stack[i] = NULL;
         }
     }
     page_stack_size = 0;
-    printf("[BACK_HOME] All pages deleted\n");
-    fflush(stdout);
+    LAUNCHER_LOG("[BACK_HOME] All pages deleted");
 
-    printf("[BACK_HOME] Done\n");
-    fflush(stdout);
+    LAUNCHER_LOG("[BACK_HOME] Done");
     return 0;
 }
 
@@ -347,7 +345,7 @@ lv_obj_t* lv_watch_get_content_area(void)
  */
 void lv_watch_set_current_obj(lv_obj_t *obj)
 {
-    printf("[LAUNCHER] Setting current_obj from %p to %p\n", current_obj, obj);
+    LAUNCHER_LOG("Setting current_obj from %p to %p", current_obj, obj);
     current_obj = obj;
 }
 

@@ -4,6 +4,7 @@
  */
 #include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 static uint32_t tinf_read_bits(const uint8_t *src, int bitpos, int nbits)
 {
@@ -123,21 +124,23 @@ static int tinf_inflate_uncompressed(tinf_state *s)
 
 static int tinf_inflate_fixed(tinf_state *s)
 {
-    static uint8_t flens[288], fdens[32];
-    static uint8_t ftree[288], dtree[32];
-    static int init = 0;
-    if (!init) {
-        for (int i =   0; i < 144; i++) flens[i] = 8;
-        for (int i = 144; i < 256; i++) flens[i] = 9;
-        for (int i = 256; i < 280; i++) flens[i] = 7;
-        for (int i = 280; i < 288; i++) flens[i] = 8;
-        for (int i = 0; i < 32; i++) fdens[i] = 5;
-        init = 1;
+    uint8_t *flens = malloc(288), *fdens = malloc(32);
+    uint8_t *ftree = malloc(288), *dtree = malloc(32);
+    if (!flens || !fdens || !ftree || !dtree) {
+        free(flens); free(fdens); free(ftree); free(dtree);
+        return -1;
     }
+    for (int i =   0; i < 144; i++) flens[i] = 8;
+    for (int i = 144; i < 256; i++) flens[i] = 9;
+    for (int i = 256; i < 280; i++) flens[i] = 7;
+    for (int i = 280; i < 288; i++) flens[i] = 8;
+    for (int i = 0; i < 32; i++) fdens[i] = 5;
     tinf_tree lt, dt;
     tinf_build_tree(&lt, flens, 288, ftree);
     tinf_build_tree(&dt, fdens, 32, dtree);
-    return tinf_inflate_block(s, &lt, &dt);
+    int ret = tinf_inflate_block(s, &lt, &dt);
+    free(flens); free(fdens); free(ftree); free(dtree);
+    return ret;
 }
 
 static int tinf_inflate_dynamic(tinf_state *s)
@@ -173,11 +176,18 @@ static int tinf_inflate_dynamic(tinf_state *s)
         }
     }
 
-    static uint16_t ltree_buf[286], dtree_buf[30];
+    uint16_t *ltree_buf = malloc(sizeof(uint16_t) * 286);
+    uint16_t *dtree_buf = malloc(sizeof(uint16_t) * 30);
+    if (!ltree_buf || !dtree_buf) {
+        free(ltree_buf); free(dtree_buf);
+        return -1;
+    }
     tinf_tree lt, dt;
     tinf_build_tree(&lt, lengths, hlit, ltree_buf);
     tinf_build_tree(&dt, lengths + hlit, hdist, dtree_buf);
-    return tinf_inflate_block(s, &lt, &dt);
+    int ret = tinf_inflate_block(s, &lt, &dt);
+    free(ltree_buf); free(dtree_buf);
+    return ret;
 }
 
 int weather_gunzip(const uint8_t *in, size_t inlen, uint8_t *out, size_t *outlen)

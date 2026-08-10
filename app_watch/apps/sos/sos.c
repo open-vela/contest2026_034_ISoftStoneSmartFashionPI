@@ -6,6 +6,12 @@
 #include <stdio.h>
 #include <string.h>  // For strlen, strcat
 
+#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
+#  define SOS_LOG(fmt, ...) printf("[SOS] " fmt "\n", ##__VA_ARGS__)
+#else
+#  define SOS_LOG(fmt, ...)
+#endif
+
 
 /* 全局变量 */
 static char emergency_phone[12] = "";
@@ -141,7 +147,7 @@ static void sos_app_create(void)
     lv_obj_add_event_cb(sos_main_base, slide_gesture_sos_main_handler, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(sos_main_base, sos_main_deleted_cb, LV_EVENT_DELETE, NULL);
 
-    printf("SOS main page create complete\n");
+    SOS_LOG("SOS main page create complete");
 }
 
 static void sos_edit_create(void)
@@ -314,7 +320,7 @@ static void sos_edit_create(void)
     lv_obj_add_event_cb(sos_edit_base, slide_gesture_sos_edit_handler, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(sos_edit_base, sos_edit_deleted_cb, LV_EVENT_DELETE, NULL);
 
-    printf("SOS edit page create complete\n");
+    SOS_LOG("SOS edit page create complete");
 }
 
 static void slide_gesture_sos_main_handler(lv_event_t *e)
@@ -398,7 +404,7 @@ static void slide_gesture_sos_edit_handler(lv_event_t *e)
 static void help_btn_event_cb(lv_event_t *e)
 {
     // 暂时不做处理
-    printf("Help button clicked\n");
+    SOS_LOG("Help button clicked");
 }
 
 static void ignore_btn_event_cb(lv_event_t *e)
@@ -452,7 +458,7 @@ static void delete_btn_event_cb(lv_event_t *e)
 static void confirm_btn_event_cb(lv_event_t *e)
 {
     // 保存电话号码
-    printf("Emergency phone saved: %s\n", emergency_phone);
+    SOS_LOG("Emergency phone saved: %s", emergency_phone);
 
     // 退出编辑页面
     if(sos_edit_base != NULL) {
@@ -478,7 +484,7 @@ void sos_app_click_callback(lv_event_t *e)
 {
     lv_event_code_t code = lv_event_get_code(e);
     if (code == LV_EVENT_CLICKED) {
-        printf("SOS button click.\n");
+        SOS_LOG("SOS button click.");
         sos_app_create();
         /* 将主页面添加到页面栈 */
         if (sos_main_base != NULL) {
@@ -499,5 +505,5 @@ void sos_app_activate(void)
     if (sos_main_base != NULL) {
         vw_watch_push_page(sos_main_base);
     }
-    printf("SOS app activated (e.g. fall detected)\n");
+    SOS_LOG("SOS app activated (e.g. fall detected)");
 }
