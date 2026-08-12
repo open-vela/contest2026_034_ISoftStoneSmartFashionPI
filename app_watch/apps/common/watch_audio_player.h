@@ -22,8 +22,9 @@
 int esp32s3_watch_audio_play_onetime(const char *filepath, uint16_t volume);
 int esp32s3_watch_audio_play_repeat(const char *filepath, uint16_t volume);
 int esp32s3_watch_audio_stop(void);
-int esp32s3_watch_audio_setvolume(uint16_t volume);
-int esp32s3_watch_audio_getvolume(uint16_t *volume);
+/* esp32s3_watch_audio_setvolume / getvolume — provided by board HAL
+ * (esp32s3-touch-amoled/src/esp32s3_watch_audio.c),
+ * declared via <arch/board/board.h> → esp32s3-touch-amoled.h */
 
 #endif
 

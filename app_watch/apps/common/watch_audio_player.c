@@ -14,7 +14,6 @@
 
 static FAR struct nxplayer_s *g_watch_player = NULL;
 static pthread_mutex_t g_player_mutex = PTHREAD_MUTEX_INITIALIZER;
-static uint16_t g_watch_volume = 500;  /* 默认音量 500/1000 = 50% */
 
 static int watch_audio_ensure_player(void)
 {
@@ -43,8 +42,6 @@ int esp32s3_watch_audio_play_onetime(const char *filepath, uint16_t volume)
     {
         volume = 1000;
     }
-
-    g_watch_volume = volume;
 
     pthread_mutex_lock(&g_player_mutex);
 
@@ -84,8 +81,6 @@ int esp32s3_watch_audio_play_repeat(const char *filepath, uint16_t volume)
     {
         volume = 1000;
     }
-
-    g_watch_volume = volume;
 
     pthread_mutex_lock(&g_player_mutex);
 
@@ -130,42 +125,10 @@ int esp32s3_watch_audio_stop(void)
     return ret;
 }
 
-int esp32s3_watch_audio_setvolume(uint16_t volume)
-{
-    if (volume > 1000)
-    {
-        volume = 1000;
-    }
-
-    g_watch_volume = volume;
-
-    pthread_mutex_lock(&g_player_mutex);
-
-    int ret = watch_audio_ensure_player();
-    if (ret < 0)
-    {
-        pthread_mutex_unlock(&g_player_mutex);
-        return ret;
-    }
-
-#ifndef CONFIG_AUDIO_EXCLUDE_VOLUME
-    ret = nxplayer_setvolume(g_watch_player, volume);
-#endif
-
-    pthread_mutex_unlock(&g_player_mutex);
-
-    return ret;
-}
-
-int esp32s3_watch_audio_getvolume(uint16_t *volume)
-{
-    if (volume == NULL)
-    {
-        return -EINVAL;
-    }
-
-    *volume = g_watch_volume;
-    return OK;
-}
+/* esp32s3_watch_audio_setvolume() and esp32s3_watch_audio_getvolume()
+ * are defined by the board HAL (esp32s3_watch_audio.c) — a single
+ * authority that talks to /dev/audio/pcm0 via ioctl.  This file
+ * does NOT redefine them; link-time resolves to the board HAL.
+ */
 
 #endif
