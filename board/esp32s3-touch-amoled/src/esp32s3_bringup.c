@@ -96,6 +96,31 @@
 #include "esp32s3_board_sdmmc.h"
 #endif
 
+#ifdef CONFIG_SYSLOG_FILE
+#include <nuttx/syslog/syslog.h>
+
+/****************************************************************************
+ * Name: syslog_flush_task
+ *
+ * Description:
+ *   Periodic task that calls syslog_flush() to sync the syslog file
+ *   channel's sector cache to disk.  Without this, VFAT's per-handle
+ *   sector cache keeps written data in RAM that is invisible to other
+ *   file handles (e.g. "cat /mnt/sd/syslog/app.log").
+ ****************************************************************************/
+
+static int syslog_flush_task(int argc, FAR char *argv[])
+{
+  while (1)
+    {
+      sleep(5);  /* Flush every 5 seconds */
+      syslog_flush();
+    }
+
+  return OK;
+}
+#endif /* CONFIG_SYSLOG_FILE */
+
 #ifdef CONFIG_ESP32S3_WATCH_SENSOR_QMI8658
 #  include <nuttx/sensors/qmi8658.h>
 #endif
@@ -203,6 +228,66 @@ static int sdmmc_mount_task(int argc, FAR char *argv[])
 
       usleep(200000);  /* Wait 200ms before retry */
     }
+
+#ifdef CONFIG_SYSLOG_FILE
+  /* After SD card mount, redirect syslog to a file on the SD card.
+   * This keeps logs persistent across reboots.  syslog_file_channel()
+   * internally handles log rotation, auto-reconnect on card removal,
+   * and crash-safe flush via the interrupt buffer.
+   */
+
+  ret = mkdir("/mnt/sd/syslog", 0755);
+  if (ret < 0 && errno != EEXIST)
+    {
+      syslog(LOG_ERR, "ERROR: Failed to create syslog dir: %d\n", ret);
+    }
+
+  /* Diagnostic: verify VFAT writes work by writing a test file directly.
+   * This helps distinguish "syslog channel doesn't write" from
+   * "SD card is read-only / VFAT write is broken".
+   */
+
+    {
+      int test_fd;
+      test_fd = open("/mnt/sd/syslog/.writetest", O_WRONLY | O_CREAT | O_TRUNC,
+                     0644);
+      if (test_fd >= 0)
+        {
+          ssize_t n = write(test_fd, "ok\n", 3);
+          close(test_fd);
+          syslog(LOG_INFO, "SD write test: fd=%d written=%d\n",
+                 test_fd, (int)n);
+        }
+      else
+        {
+          syslog(LOG_ERR, "ERROR: SD write test open failed: %d\n", test_fd);
+        }
+    }
+
+  FAR syslog_channel_t *file_ch;
+  file_ch = syslog_file_channel("/mnt/sd/syslog/app.log");
+  if (file_ch == NULL)
+    {
+      syslog(LOG_ERR, "ERROR: syslog_file_channel() failed\n");
+    }
+  else
+    {
+      /* Start a periodic flush task to sync the VFAT sector cache
+       * to disk.  Without this, writes stay in the file's private
+       * cache and are invisible to other file handles (cat, tail).
+       */
+
+      ret = task_create("syslog_flush", 50, 2048,
+                        syslog_flush_task, NULL);
+      if (ret < 0)
+        {
+          syslog(LOG_ERR, "ERROR: Failed to start flush task: %d\n", ret);
+        }
+
+      syslog(LOG_INFO, "Syslog file channel: /mnt/sd/syslog/app.log\n");
+      syslog_flush();
+    }
+#endif /* CONFIG_SYSLOG_FILE */
 
   return OK;
 }
