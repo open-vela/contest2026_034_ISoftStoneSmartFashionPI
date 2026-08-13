@@ -36,7 +36,7 @@ static uint32_t tinf_bits(tinf_state *s, int n)
 
 typedef struct {
     uint8_t counts[TINF_TREE_SIZE];
-    uint8_t *symbols;
+    uint16_t *symbols;
 } tinf_tree;
 
 static int tinf_build_tree(tinf_tree *t, const uint8_t *lengths, int n, uint16_t *sym_buf)
@@ -125,7 +125,8 @@ static int tinf_inflate_uncompressed(tinf_state *s)
 static int tinf_inflate_fixed(tinf_state *s)
 {
     uint8_t *flens = malloc(288), *fdens = malloc(32);
-    uint8_t *ftree = malloc(288), *dtree = malloc(32);
+    uint16_t *ftree = malloc(sizeof(uint16_t) * 288);
+    uint16_t *dtree = malloc(sizeof(uint16_t) * 32);
     if (!flens || !fdens || !ftree || !dtree) {
         free(flens); free(fdens); free(ftree); free(dtree);
         return -1;

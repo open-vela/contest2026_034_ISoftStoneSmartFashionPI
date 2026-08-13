@@ -811,7 +811,7 @@ static void weather_ui_refresh_timer_cb(lv_timer_t *timer)
             if (time_lbl) lv_label_set_text(time_lbl, WD.hourly[i].time);
             if (icon_img) lv_img_set_src(icon_img, get_weather_icon_resource(WD.hourly[i].icon, 0));
             if (temp_lbl) {
-                char t[8]; sprintf(t, "%d℃", WD.hourly[i].temp);
+                char t[8]; sprintf(t, "%d°C", WD.hourly[i].temp);
                 lv_label_set_text(temp_lbl, t);
             }
             WEATHER_LOG("[Weather] hourly[%d]: time=%s icon=%s temp=%d\n",
@@ -836,7 +836,7 @@ static void weather_ui_refresh_timer_cb(lv_timer_t *timer)
             if (day_lbl) lv_label_set_text(day_lbl, WD.daily[i].day);
             if (icon_img) lv_img_set_src(icon_img, get_weather_icon_resource(WD.daily[i].icon, 0));
             if (temp_lbl) {
-                char t[20]; sprintf(t, "%d/%d℃", WD.daily[i].temp_min, WD.daily[i].temp_max);
+                char t[20]; sprintf(t, "%d/%d°C", WD.daily[i].temp_min, WD.daily[i].temp_max);
                 lv_label_set_text(temp_lbl, t);
             }
             WEATHER_LOG("[Weather] daily[%d]: day=%s icon=%s hi=%d lo=%d\n",
@@ -889,8 +889,8 @@ static void start_weather_fetch(void)
     pthread_attr_t attr;
     pthread_attr_init(&attr);
     
-    // 设置线程栈大小为16KB，足够支持TLS握手
-    const size_t stack_size = 16384;
+    // 设置线程栈大小为24KB，足够支持TLS握手（与 voice_channel.c CONV_THREAD_STACK 一致）
+    const size_t stack_size = 24 * 1024;
     pthread_attr_setstacksize(&attr, stack_size);
     
     pthread_t tid;
@@ -1004,7 +1004,7 @@ static void weather_app_create(void)
     lv_obj_add_flag(temp_label, LV_OBJ_FLAG_HIDDEN);
 
     weather_unit_label = lv_label_create(weather_main_base);
-    lv_label_set_text(weather_unit_label, "℃");
+    lv_label_set_text(weather_unit_label, "°C");
     lv_obj_set_style_text_font(weather_unit_label, vw_resource_get_font(WATCH_REGULAR_FONT "_24"), 0);
     lv_obj_set_style_text_color(weather_unit_label, lv_color_hex(0xFFFFFF), 0);
     lv_obj_align_to(weather_unit_label, temp_label, LV_ALIGN_OUT_RIGHT_BOTTOM, 5, -24);
@@ -1090,7 +1090,7 @@ static void weather_app_create(void)
         lv_obj_t *temp_hourly_label = lv_label_create(item);
         lv_obj_set_size(temp_hourly_label, 64, 28);
         lv_obj_align(temp_hourly_label, LV_ALIGN_TOP_MID, 0, 93);
-        lv_label_set_text(temp_hourly_label, "--℃");
+        lv_label_set_text(temp_hourly_label, "--°C");
         lv_obj_set_style_text_color(temp_hourly_label, lv_color_hex(0xFFFFFF), 0);
         lv_obj_set_style_text_font(temp_hourly_label, vw_resource_get_font(WATCH_REGULAR_FONT "_20"), 0);
         lv_obj_set_style_text_align(temp_hourly_label, LV_TEXT_ALIGN_CENTER, 0);
@@ -1124,7 +1124,7 @@ static void weather_app_create(void)
         lv_obj_t *temp_daily_label = lv_label_create(item);
         lv_obj_set_size(temp_daily_label, 64, 28);
         lv_obj_align(temp_daily_label, LV_ALIGN_TOP_MID, 0, 93);
-        lv_label_set_text(temp_daily_label, "--℃");
+        lv_label_set_text(temp_daily_label, "--°C");
         lv_obj_set_style_text_color(temp_daily_label, lv_color_hex(0xFFFFFF), 0);
         lv_obj_set_style_text_font(temp_daily_label, vw_resource_get_font(WATCH_REGULAR_FONT "_20"), 0);
         lv_obj_set_style_text_align(temp_daily_label, LV_TEXT_ALIGN_CENTER, 0);
