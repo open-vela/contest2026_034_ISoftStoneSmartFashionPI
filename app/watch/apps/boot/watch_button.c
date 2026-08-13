@@ -25,7 +25,11 @@
 #include "esp32s3_gpio.h"
 
 #include "watch_button.h"
-/* 表情UI设置界面已移除，不再需要 settings.h */
+#include "../common/ui_mode_manager.h"
+
+/* AXP2101 power reset — same approach as settings_ui_mode.c.
+ * The function is already linked via settings_ui_mode.c. */
+extern void axp2101_power_reset(void);
 
 /* ── Watch expression / voice externs (flat build) ──────────── */
 extern int  watch_expression_page_set_face(const char* face_id, int duration_ms);
@@ -250,27 +254,34 @@ static void handle_boot_short_press(void)
  * Name: handle_boot_long_press
  *
  * Description:
- *   BOOT长按处理：切换设置界面
+ *   BOOT长按10s处理：表情模式下切换到手表模式（保存配置 + 重启）
+ *   手表模式下不做任何操作。
  ****************************************************************************/
 
 static void handle_boot_long_press(void)
 {
-  BTN_LOG("BOOT long press detected (settings disabled)");
-  /* 表情UI设置界面已禁用，不再通过按键调出设置 */
-#if 0
-  if (settings_is_open())
+  BTN_LOG("BOOT long press detected");
+
+  ui_mode_t current_mode = ui_mode_load();
+
+  if (current_mode == UI_MODE_EXPRESSION)
     {
-      settings_app_close();
-      g_settings_active = false;
-      BTN_LOG("Settings closed");
+      /* 表情模式 → 切换到手表模式 */
+      BTN_LOG("Switching to watch UI mode, rebooting...");
+
+      /* 视觉反馈：显示切换提示表情 */
+      watch_expression_page_set_face("love", 0);
+      lv_refr_now(NULL);
+
+      /* 保存手表模式到持久化配置并重启（与 settings_ui_mode.c 相同的模式） */
+      ui_mode_save(UI_MODE_WATCH);
+      axp2101_power_reset();
     }
   else
     {
-      settings_app_open();
-      g_settings_active = true;
-      BTN_LOG("Settings opened");
+      /* 手表模式：此功能不可用 */
+      BTN_LOG("Long press disabled in watch mode");
     }
-#endif
 }
 
 /****************************************************************************

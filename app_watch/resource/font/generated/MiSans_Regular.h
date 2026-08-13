@@ -1,4 +1,4 @@
-/* Auto-generated from tmp2z6ivoh7.ttf
+/* Auto-generated from tmpl5ihkbmv.ttf
  * Do not edit manually.
  */
 
@@ -7,7 +7,7 @@
 
 #include <stdint.h>
 
-#define MiSans_Regular_ttf_size 199412
-extern const uint8_t MiSans_Regular_ttf_data[199412];
+#define MiSans_Regular_ttf_size 199516
+extern const uint8_t MiSans_Regular_ttf_data[199516];
 
 #endif /* __MISANS_REGULAR_H__ */
