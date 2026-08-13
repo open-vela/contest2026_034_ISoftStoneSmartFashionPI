@@ -36,6 +36,10 @@
 #include <nuttx/power/axp2101.h>
 #include "../home_control/home_control.h"
 
+/* ── 设备状态读取（电量/音量）────────────────────────────── */
+extern uint8_t watch_battery_get_level(void);
+extern int  watch_volume_get_percent(void);
+
 #include "mbedtls/ssl.h"
 #include "mbedtls/entropy.h"
 #include "mbedtls/ctr_drbg.h"
@@ -108,6 +112,7 @@ static pthread_t s_send_tid;
 /* 音频播放 */
 static struct nxplayer_s *s_nxplayer;
 static volatile bool s_playing;
+static volatile bool s_suppress_tts;  /* 本地命令匹配时抑制服务器 TTS */
 static struct timespec s_cooldown_until;
 static bool s_cooldown_active;
 static unsigned char *s_pcm_buf;
@@ -696,6 +701,23 @@ static int send_start_session(tls_ctx_t *ctx, const char *session_id,
         }
     }
 
+    /* 注入设备状态（电量/音量）约束，使服务器能给出准确回复 */
+    {
+        uint8_t bat = watch_battery_get_level();
+        int vol = watch_volume_get_percent();
+        if (vol < 0) vol = 0;
+        style_len += snprintf(style + style_len, sizeof(style) - style_len,
+            "当前设备状态：电量%d%%，音量%d%%。"
+            "如果用户询问电量或电池，请直接告知电量百分比。"
+            "如果用户询问音量大小，请直接告知音量百分比。"
+            "如果用户要求调大音量，请回复'好的，音量已调大'。"
+            "如果用户要求调小音量，请回复'好的，音量已调小'。"
+            "如果用户要求静音，请回复'好的，已静音'。"
+            "如果用户要求设置音量到指定值，请回复'好的，音量已调整'。"
+            "不要编造与实际设备状态不符的数值。",
+            bat, vol);
+    }
+
     cJSON *dialog = cJSON_AddObjectToObject(root, "dialog");
     cJSON_AddStringToObject(dialog, "bot_name", "小通");
     cJSON_AddStringToObject(dialog, "system_role",
@@ -1205,6 +1227,7 @@ static void *recv_thread(void *arg)
         case EVENT_ASR_INFO:
             syslog(LOG_INFO, "[%s] ASRInfo (user speaking)\n", TAG);
             s_asr_buf[0] = '\0';  /* 新轮次，清空累积文本 */
+            s_suppress_tts = false;  /* 新轮次，重置抑制标志 */
             if (s_playing && !s_cooldown_active) {
                 playback_stop();
                 playback_init();
@@ -1312,8 +1335,11 @@ static void *recv_thread(void *arg)
         case EVENT_ASR_ENDED:
             syslog(LOG_INFO, "[%s] ASREnded\n", TAG);
             s_asr_buf[0] = '\0';  /* 本轮结束，清空累积文本 */
-            s_playing = true;
-            notify_state(VOLC_UI_THINKING);
+            s_playing = !s_suppress_tts;  /* 本地命令时不进入播放状态 */
+            if (s_suppress_tts)
+                notify_state(VOLC_UI_CONNECTED);  /* 跳过 THINKING/SPEAKING */
+            else
+                notify_state(VOLC_UI_THINKING);
             break;
 
         case EVENT_CHAT_RESPONSE:
@@ -1337,30 +1363,36 @@ static void *recv_thread(void *arg)
             break;
 
         case EVENT_TTS_SENTENCE_START:
-            syslog(LOG_INFO, "[%s] TTSSentenceStart\n", TAG);
-            s_playing = true;
-            notify_state(VOLC_UI_SPEAKING);
+            syslog(LOG_INFO, "[%s] TTSSentenceStart%s\n", TAG,
+                   s_suppress_tts ? " [SUPPRESSED]" : "");
+            if (!s_suppress_tts) {
+                s_playing = true;
+                notify_state(VOLC_UI_SPEAKING);
+            }
             break;
 
         case EVENT_TTS_SENTENCE_END:
-            syslog(LOG_INFO, "[%s] TTSSentenceEnd\n", TAG);
-            if (s_pcm_len > 0) {
+            syslog(LOG_INFO, "[%s] TTSSentenceEnd%s\n", TAG,
+                   s_suppress_tts ? " [SUPPRESSED]" : "");
+            if (!s_suppress_tts && s_pcm_len > 0) {
                 playback_stop();
                 playback_init();
             }
             break;
 
         case EVENT_TTS_RESPONSE:
-            if (plen > 0 && s_playing)
+            if (plen > 0 && s_playing && !s_suppress_tts)
                 playback_write(payload, plen);
             break;
 
         case EVENT_TTS_ENDED:
-            syslog(LOG_INFO, "[%s] TTSEnded\n", TAG);
-            if (s_pcm_len > 0) {
+            syslog(LOG_INFO, "[%s] TTSEnded%s\n", TAG,
+                   s_suppress_tts ? " [SUPPRESSED]" : "");
+            if (!s_suppress_tts && s_pcm_len > 0) {
                 playback_stop();
                 playback_init();
             }
+            s_suppress_tts = false;  /* 重置抑制标志 */
             if (s_cooldown_active) {
                 s_playing = true;
             } else {

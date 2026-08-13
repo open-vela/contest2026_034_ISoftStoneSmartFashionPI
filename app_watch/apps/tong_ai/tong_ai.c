@@ -30,6 +30,11 @@
 #include <stdbool.h>
 #include <nuttx/power/axp2101.h>
 
+/* ── 音量控制（本地硬件操作，不抑制TTS）────────────────── */
+extern int  watch_volume_set_percent(int percent);
+extern int  watch_volume_get_percent(void);
+extern int  watch_volume_step_delta(int delta);
+
 #ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
 #  define TONG_LOG(fmt, ...) printf(fmt, ##__VA_ARGS__)
 #else
@@ -326,6 +331,73 @@ static int strstr_any(const char *buf, const char * const variants[])
     return 0;
 }
 
+/* ========== 音量本地调节（静默执行，不抑制TTS）============
+ * E2E模式下服务器LLM无法控制硬件音量，收到ASR文本后
+ * 本地静默执行硬件操作，服务器TTS正常播放确认回复。
+ * ============================================================ */
+
+static void try_volume_adjust(const char *text)
+{
+    if (!text || !text[0]) return;
+
+    /* ── 音量调大 ────────────────────────────────────────── */
+    if (strstr(text, "大声") || strstr(text, "音量调大") ||
+        strstr(text, "调大音量") || strstr(text, "声音大") ||
+        strstr(text, "加大音量") || strstr(text, "提高音量") ||
+        strstr(text, "音量增大") || strstr(text, "声音太小") ||
+        strstr(text, "听不见") || strstr(text, "响一点")) {
+        int pct = watch_volume_step_delta(10);
+        syslog(LOG_INFO, "[TONG] vol up → %d%%\n", pct);
+        return;
+    }
+
+    /* ── 音量调小 ────────────────────────────────────────── */
+    if (strstr(text, "小声") || strstr(text, "音量调小") ||
+        strstr(text, "调小音量") || strstr(text, "声音小") ||
+        strstr(text, "减小音量") || strstr(text, "降低音量") ||
+        strstr(text, "音量减小") || strstr(text, "声音太大") ||
+        strstr(text, "太吵") || strstr(text, "轻一点")) {
+        int pct = watch_volume_step_delta(-10);
+        syslog(LOG_INFO, "[TONG] vol down → %d%%\n", pct);
+        return;
+    }
+
+    /* ── 静音 ────────────────────────────────────────────── */
+    if (strstr(text, "静音") || strstr(text, "关掉声音") ||
+        strstr(text, "关闭声音")) {
+        watch_volume_set_percent(0);
+        syslog(LOG_INFO, "[TONG] vol mute\n");
+        return;
+    }
+
+    /* ── 取消静音 ────────────────────────────────────────── */
+    if (strstr(text, "取消静音") || strstr(text, "解除静音") ||
+        strstr(text, "打开声音") || strstr(text, "恢复音量")) {
+        watch_volume_set_percent(50);
+        syslog(LOG_INFO, "[TONG] vol unmute → 50%%\n");
+        return;
+    }
+
+    /* ── 音量设为指定值 ──────────────────────────────────── */
+    if (strstr(text, "音量调到") || strstr(text, "音量设为") ||
+        strstr(text, "设置音量") || strstr(text, "音量设置")) {
+        const char *p = text;
+        while (*p) {
+            if (*p >= '0' && *p <= '9') {
+                int num = (int)strtol(p, (char**)&p, 10);
+                if (num > 0) {
+                    if (num < 10) num = 10;
+                    if (num > 100) num = 100;
+                    watch_volume_set_percent(num);
+                    syslog(LOG_INFO, "[TONG] vol set → %d%%\n", num);
+                }
+                return;
+            }
+            p++;
+        }
+    }
+}
+
 /* ========== volc事件回调 (从recv_thread/start_thread调用) ========== */
 
 static void volc_event_callback(volc_callback_type_t type, const char *data)
@@ -397,6 +469,9 @@ static void volc_event_callback(volc_callback_type_t type, const char *data)
                 axp2101_power_reset();
                 /* 不会到达这里 */
             }
+
+            /* 音量本地调节——静默执行硬件操作，不抑制TTS */
+            try_volume_adjust(data);
         }
         break;
     case VOLC_CB_DISCONNECTED:
