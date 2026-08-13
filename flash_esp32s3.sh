@@ -354,11 +354,21 @@ action_convert_assets() {
     log_info "[2/3] 转换 TTF 字体为 C 数组..."
     if [ -f "${convert_font_script}" ]; then
         mkdir -p "${font_gen_dir}"
-        python3 "${convert_font_script}" \
-            -i "${RES_DIR}/font/assets" \
-            -o "${font_gen_dir}" \
-            --names-file "${RES_DIR}/font/font_src.inc"
-        log_ok "字体 C 数组生成完成: ${font_gen_dir}"
+        local charset_file="${RES_DIR}/font/charset.txt"
+        if [ -f "${charset_file}" ]; then
+            python3 "${convert_font_script}" \
+                -i "${RES_DIR}/font/assets" \
+                -o "${font_gen_dir}" \
+                --names-file "${RES_DIR}/font/font_src.inc" \
+                --subset-file "${charset_file}"
+            log_ok "字体 C 数组生成完成 (subset: $(wc -m < "${charset_file}") chars): ${font_gen_dir}"
+        else
+            python3 "${convert_font_script}" \
+                -i "${RES_DIR}/font/assets" \
+                -o "${font_gen_dir}" \
+                --names-file "${RES_DIR}/font/font_src.inc"
+            log_ok "字体 C 数组生成完成 (full): ${font_gen_dir}"
+        fi
     else
         log_warn "字体转换脚本不存在: ${convert_font_script}，跳过 TTF 转换"
     fi

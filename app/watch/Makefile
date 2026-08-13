@@ -61,7 +61,9 @@ CSRCS += resource/image/app/boot/isoftstone_logo.c
 CSRCS += $(wildcard ./resource/image/generated/*.c)
 
 # Font C array data (subset TTF embedded)
-CSRCS += $(wildcard ./resource/font/generated/*.c)
+# Exclude MiSans_Regular.c — app_watch provides a larger subset (192KB vs 165KB)
+# that matches the MiSans_Regular_ttf_size declared in app_watch's header
+CSRCS += $(filter-out %MiSans_Regular.c, $(wildcard ./resource/font/generated/*.c))
 
 # Expression GIF images embedded as C arrays (from gif1)
 EXPR_GIF1_GEN_DIR := ./resource/image/Expression/gif1/generated
@@ -75,7 +77,7 @@ CSRCS += $(wildcard $(POWER_PNG_GEN_DIR)/*.c)
 # Vendor watch UI sources (app_watch)
 # ============================================================
 
-# app_watch apps (exclude xiaozhi_ai to avoid conflict with ai_agent)
+# app_watch apps (tong_ai uses volcengine E2E, independent of ai_agent)
 CSRCS += $(shell find $(VENDOR_WATCH_DIR)/apps/alarm -name "*.c")
 CSRCS += $(shell find $(VENDOR_WATCH_DIR)/apps/boot -name "*.c")
 CSRCS += $(shell find $(VENDOR_WATCH_DIR)/apps/calendar -name "*.c")
@@ -87,7 +89,7 @@ CSRCS += $(shell find $(VENDOR_WATCH_DIR)/apps/sos -name "*.c")
 CSRCS += $(shell find $(VENDOR_WATCH_DIR)/apps/sports -name "*.c")
 CSRCS += $(shell find $(VENDOR_WATCH_DIR)/apps/stopwatch -name "*.c")
 CSRCS += $(shell find $(VENDOR_WATCH_DIR)/apps/weather -name "*.c")
-CSRCS += $(shell find $(VENDOR_WATCH_DIR)/apps/xiaozhi_ai -name "*.c")
+CSRCS += $(shell find $(VENDOR_WATCH_DIR)/apps/tong_ai -name "*.c")
 
 # app_watch resource manager
 CSRCS += $(VENDOR_WATCH_DIR)/resource/resource.c
@@ -95,8 +97,8 @@ CSRCS += $(VENDOR_WATCH_DIR)/resource/resource.c
 # app_watch generated assets (images, fonts, power animations)
 CSRCS += $(wildcard $(VENDOR_WATCH_DIR)/resource/image/generated/*.c)
 # Exclude AlibabaPuHuiTi font (removed to save ~163KB DRAM)
-# Exclude duplicate MiSans_Regular.c (already provided by app/watch/resource/font/generated/)
-VW_FONT_CSRCS := $(filter-out %AlibabaPuHuiTi_3_55_Regular.c %MiSans_Regular.c, $(wildcard $(VENDOR_WATCH_DIR)/resource/font/generated/*.c))
+# MiSans_Regular.c IS included from app_watch — matches the header size
+VW_FONT_CSRCS := $(filter-out %AlibabaPuHuiTi_3_55_Regular.c, $(wildcard $(VENDOR_WATCH_DIR)/resource/font/generated/*.c))
 CSRCS += $(VW_FONT_CSRCS)
 CSRCS += $(wildcard $(VENDOR_WATCH_DIR)/resource/power_jpg/generated/*.c)
 CSRCS += $(wildcard $(VENDOR_WATCH_DIR)/resource/power_png/generated/*.c)

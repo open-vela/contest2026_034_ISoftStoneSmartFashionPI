@@ -242,6 +242,128 @@ static int send_control_command(int cmd)
     return ret;
 }
 
+/* ========== 语音控制（供小通AI调用） ========== */
+
+/* 检查buf中是否包含变体列表中的任意一个字符串 */
+static int strstr_variants(const char *buf, const char * const variants[])
+{
+    for (int i = 0; variants[i] != NULL; i++) {
+        if (strstr(buf, variants[i])) return 1;
+    }
+    return 0;
+}
+
+/* 开关动作词变体 — 精简为最常用发音（加 const 移入 flash） */
+static const char * const ACT_ON[]  = {"打开", "开", "开启", "启动", "打开", "达开", NULL};
+static const char * const ACT_OFF[] = {"关闭", "关", "关上", "关掉", "停止", "关比", "光闭", NULL};
+
+/* 设备关键词→设备索引映射 */
+typedef struct {
+    const char * const *variants; /* 发音变体列表（NULL结尾，const入flash） */
+    int dev_index;
+    bool has_sub;
+} device_voice_map_t;
+
+/* 各设备发音变体（精简为3~4个最常用变体以减少flash占用） */
+static const char * const V_TV[]        = {"电视", "殿试", "电是", NULL};
+static const char * const V_AC[]        = {"空调", "空条", "孔调", NULL};
+static const char * const V_FLOOR[]     = {"地暖", "地卵", "地软", NULL};
+static const char * const V_FRESH[]     = {"新风", "欣风", "新丰", NULL};
+static const char * const V_AMBIENT[]   = {"氛围灯", "客厅氛围", "氛围", "芬围灯", NULL};
+static const char * const V_LIVING[]    = {"客厅灯", "客厅的灯", "课厅灯", "可厅灯", NULL};
+static const char * const V_TV_BG[]     = {"背景灯", "电视背景灯", "背静灯", "北京灯", NULL};
+static const char * const V_ENTRANCE[]  = {"玄关灯", "玄关的灯", "旋关灯", NULL};
+static const char * const V_BEDROOM[]   = {"卧室灯", "卧室的灯", "我是灯", "卧式灯", NULL};
+static const char * const V_BEDROOM_BG[]= {"卧室背景灯", "我是背景灯", "卧室背静灯", NULL};
+static const char * const V_BATHROOM[]  = {"卫生间灯", "卫生间", "厕所灯", "洗手间灯", "为生间", NULL};
+static const char * const V_CURTAIN[]   = {"窗帘", "窗连", "创联", "窗脸", NULL};
+
+/* 设备映射表 — 加 const 移入 flash */
+static const device_voice_map_t g_device_map[] = {
+    {V_TV,           0,  false},
+    {V_AC,           1,  false},
+    {V_FLOOR,        2,  false},
+    {V_FRESH,        3,  false},
+    {V_AMBIENT,      4,  false},
+    {V_LIVING,       5,  false},
+    {V_TV_BG,        6,  false},
+    {V_ENTRANCE,     7,  false},
+    {V_BEDROOM,      8,  false},
+    {V_BEDROOM_BG,   9,  false},
+    {V_BATHROOM,    10,  false},
+    {V_CURTAIN,     11,  true },
+};
+
+int home_control_voice_execute(const char *text)
+{
+    if (!text || !text[0]) return HOME_CTRL_NONE;
+
+    /* 1. 解析动作 */
+    int action = -1; /* -1=未知, 0=关, 1=开 */
+    if (strstr_variants(text, ACT_ON)) {
+        action = 1;
+    } else if (strstr_variants(text, ACT_OFF)) {
+        action = 0;
+    }
+    if (action < 0) return HOME_CTRL_NONE;
+
+    /* 2. 匹配设备 */
+    int dev_index = -1;
+    bool has_sub = false;
+    for (int i = 0; i < (int)(sizeof(g_device_map) / sizeof(g_device_map[0])); i++) {
+        if (strstr_variants(text, g_device_map[i].variants)) {
+            dev_index = g_device_map[i].dev_index;
+            has_sub = g_device_map[i].has_sub;
+            break;
+        }
+    }
+    if (dev_index < 0) {
+        /* 有开关动作词但未匹配到设备：写标记文件供下一轮AI约束 */
+        FILE *fp = fopen("/tmp/home_ctrl_nomatch", "w");
+        if (fp) { fprintf(fp, "%s\n", text); fclose(fp); }
+        return HOME_CTRL_NO_MATCH;
+    }
+
+    /* 3. 确保设备列表已初始化 */
+    init_devices();
+
+    HC_LOG("Voice cmd: %s → device[%d] %s → %s",
+           text, dev_index, devices[dev_index].name,
+           action ? "ON" : "OFF");
+
+    /* 4. 发现服务器 */
+    if (!g_server_discovered) {
+        discover_server_info();
+    }
+    if (!g_server_discovered) {
+        HC_LOG("Server not discovered, cannot execute voice command");
+        /* 写标记文件供下一轮AI约束 */
+        FILE *fp = fopen("/tmp/home_ctrl_netfail", "w");
+        if (fp) { fprintf(fp, "%s\n", devices[dev_index].name); fclose(fp); }
+        return HOME_CTRL_NET_FAIL;
+    }
+
+    /* 5. 计算命令码 */
+    int cmd;
+    if (has_sub) {
+        cmd = action ? 23 : 24; /* 窗帘 */
+    } else {
+        cmd = action ? (dev_index * 2 + 1) : (dev_index * 2 + 2);
+    }
+
+    /* 6. 发送指令 */
+    int ret = send_control_command(cmd);
+    if (ret < 0) {
+        HC_LOG("Send command failed for device %s", devices[dev_index].name);
+        /* 写标记文件供下一轮AI约束 */
+        FILE *fp = fopen("/tmp/home_ctrl_netfail", "w");
+        if (fp) { fprintf(fp, "%s\n", devices[dev_index].name); fclose(fp); }
+        return HOME_CTRL_NET_FAIL;
+    }
+
+    return HOME_CTRL_OK;
+}
+
 /**
  * 智能家居应用点击回调
  */
