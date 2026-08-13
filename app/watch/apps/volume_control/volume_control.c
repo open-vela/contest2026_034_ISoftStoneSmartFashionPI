@@ -24,7 +24,7 @@
 
 #define VOL_TAG "[VOLUME] "
 #ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
-#define VOL_LOG(fmt, ...)  printf(VOL_TAG fmt "\n", ##__VA_ARGS__)
+#define VOL_LOG(fmt, ...)
 #else
 #define VOL_LOG(fmt, ...)
 #endif
