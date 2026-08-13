@@ -13,7 +13,7 @@
 #include "../alarm/alarm.h"
 #include "../sports/sports.h"
 #include "../sos/sos.h"
-#include "../xiaozhi_ai/xiaozhi_ai.h" 
+#include "../tong_ai/tong_ai.h"
 #include "launcher.h"
 #include "../weather/weather.h"
 
@@ -328,7 +328,7 @@ lv_obj_t *app_tile_setup(lv_obj_t *parent)
 
     /* 第3页应用 */
     register_app("日历", vw_resource_get_img("icon_app_calendar"), calendar_app_click_callback);
-    register_app("小智AI", vw_resource_get_img("icon_app_ai"), xiaozhi_ai_app_click_callback);
+    register_app("小通AI", vw_resource_get_img("icon_app_ai"), tong_ai_app_click_callback);
     /* 创建应用图标 */
     for (int i = 0; i < app_count; i++) {
         int page_index = i / APPS_PER_PAGE;

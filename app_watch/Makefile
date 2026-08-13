@@ -34,7 +34,7 @@ CSRCS += $(shell find ./apps/stopwatch -name "*.c")
 CSRCS += $(shell find ./apps/alarm -name "*.c")
 CSRCS += $(shell find ./apps/sports -name "*.c")
 CSRCS += $(shell find ./apps/sos -name "*.c")
-CSRCS += $(shell find ./apps/xiaozhi_ai -name "*.c")
+CSRCS += $(shell find ./apps/tong_ai -name "*.c")
 CSRCS += $(shell find ./apps/weather -name "*.c")
 # 只编译resource.c，不编译image目录下的.c文件
 CSRCS += resource/resource.c

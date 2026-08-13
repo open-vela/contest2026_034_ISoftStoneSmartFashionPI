@@ -90,8 +90,16 @@ static void logo_check_timer_cb(lv_timer_t *timer);
 /* 空闲超时标志：voice_channel 线程设置，LVGL 定时器轮询并执行 hide */
 static volatile bool g_idle_timeout_pending = false;
 
+/* 小通AI活跃状态检查（避免对话期间黑屏） */
+extern bool tong_ai_is_active(void);
+
 static void on_idle_timeout(void)
 {
+  /* 小通AI页面打开时，不隐藏表情页（tong_ai 有自己的音频通路，
+   * voice_channel 检测不到其语音活动，会误判为空闲） */
+  if (tong_ai_is_active()) {
+    return;
+  }
   g_idle_timeout_pending = true;
 }
 

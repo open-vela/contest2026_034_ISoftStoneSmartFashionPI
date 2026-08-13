@@ -23,6 +23,9 @@ if(CONFIG_EXAMPLES_CONTEST2026_WATCH_BOOT)
     ${CMAKE_CURRENT_SOURCE_DIR}/resource/image/generated/*.c
     ${CMAKE_CURRENT_SOURCE_DIR}/resource/font/generated/*.c
   )
+  # Exclude MiSans_Regular.c — app_watch provides a larger subset (192KB vs 165KB)
+  # that matches the MiSans_Regular_ttf_size declared in app_watch's header
+  list(FILTER RESOURCE_CSRCS EXCLUDE REGEX ".*/app/watch/resource/font/generated/MiSans_Regular\\.c$")
 
   # Expression GIF images are loaded from SD card at runtime,
   # no C array data is compiled into firmware.
@@ -39,7 +42,7 @@ if(CONFIG_EXAMPLES_CONTEST2026_WATCH_BOOT)
   # ============================================================
   set(VENDOR_WATCH_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../app_watch)
 
-  # app_watch apps (exclude xiaozhi_ai to avoid conflict with ai_agent)
+  # app_watch apps (tong_ai uses volcengine E2E, independent of ai_agent)
   file(GLOB_RECURSE VW_APPS_CSRCS
     ${VENDOR_WATCH_DIR}/apps/alarm/*.c
     ${VENDOR_WATCH_DIR}/apps/boot/*.c
@@ -52,7 +55,7 @@ if(CONFIG_EXAMPLES_CONTEST2026_WATCH_BOOT)
     ${VENDOR_WATCH_DIR}/apps/sports/*.c
     ${VENDOR_WATCH_DIR}/apps/stopwatch/*.c
     ${VENDOR_WATCH_DIR}/apps/weather/*.c
-    ${VENDOR_WATCH_DIR}/apps/xiaozhi_ai/*.c
+    ${VENDOR_WATCH_DIR}/apps/tong_ai/*.c
   )
 
   # app_watch resource manager + generated assets
@@ -62,8 +65,8 @@ if(CONFIG_EXAMPLES_CONTEST2026_WATCH_BOOT)
   file(GLOB VW_IMG_ASSETS ${VENDOR_WATCH_DIR}/resource/image/generated/*.c)
   file(GLOB VW_FONT_ASSETS ${VENDOR_WATCH_DIR}/resource/font/generated/*.c)
   # Exclude AlibabaPuHuiTi font (removed to save ~163KB DRAM)
-  # Exclude duplicate MiSans_Regular.c (already provided by app/watch/resource/font/generated/)
-  list(FILTER VW_FONT_ASSETS EXCLUDE REGEX ".*AlibabaPuHuiTi_3_55_Regular\.c$|.*MiSans_Regular\.c$")
+  # MiSans_Regular.c IS included from app_watch — matches the header size
+  list(FILTER VW_FONT_ASSETS EXCLUDE REGEX ".*AlibabaPuHuiTi_3_55_Regular\.c$")
   file(GLOB VW_PWR_JPG_ASSETS ${VENDOR_WATCH_DIR}/resource/power_jpg/generated/*.c)
   file(GLOB VW_PWR_PNG_ASSETS ${VENDOR_WATCH_DIR}/resource/power_png/generated/*.c)
   list(APPEND VW_RESOURCE_CSRCS ${VW_IMG_ASSETS} ${VW_FONT_ASSETS} ${VW_PWR_JPG_ASSETS} ${VW_PWR_PNG_ASSETS})
@@ -91,6 +94,7 @@ if(CONFIG_EXAMPLES_CONTEST2026_WATCH_BOOT)
     lvgl
     jsonc
     curl
+    mbedtls
     SRCS
     ${MAINSRC} ${ALL_CSRCS}
   )
