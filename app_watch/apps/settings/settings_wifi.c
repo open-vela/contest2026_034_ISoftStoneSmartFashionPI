@@ -13,7 +13,13 @@
 #include <pthread.h>
 #include <time.h>
 #include <syslog.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <nuttx/timers/rtc.h>
 #include "netutils/netlib.h"
+#ifdef CONFIG_NETUTILS_NTPCLIENT
+#  include "netutils/ntpclient.h"
+#endif
 #include "../common/watch_pages.h"
 #include "../../resource/resource.h"
 #include "../home_control/home_control.h"
@@ -894,19 +900,69 @@ static void *wifi_reconnect_thread(void *arg)
     /* WiFi连接成功后，自动同步NTP时间 */
 #ifdef CONFIG_NETUTILS_NTPCLIENT
     if (strlen(g_connected_ssid) > 0) {
-        extern int ntpc_start(void);
         syslog(LOG_INFO, "[WiFi] NTP sync: starting (server: %s)\n",
                CONFIG_NETUTILS_NTPCLIENT_SERVER);
         int ntp_ret = ntpc_start();
         if (ntp_ret >= 0) {
-            sleep(3);
+            /* ntpc_start() 是异步的：真正的时间同步由后台 daemon 完成
+             * （DNS 解析 + 多轮采样），这里轮询 ntpc_status() 直到
+             * daemon 至少采到 1 个样本，确保同步真正生效。
+             */
+            bool synced = false;
+            for (int i = 0; i < 30; i++) {
+                struct ntpc_status_s st;
+                memset(&st, 0, sizeof(st));
+                if (ntpc_status(&st) == 0 && st.nsamples > 0) {
+                    synced = true;
+                    break;
+                }
+                sleep(1);
+            }
+
             struct timespec ts;
             clock_gettime(CLOCK_REALTIME, &ts);
+
+            if (synced) {
+                /* 同步成功：将 UTC 时间写回 RTC，防止重启后
+                 * 系统时间回退到 RTC 中的旧值（本地时间当 UTC
+                 * 会导致时间快 8 小时）。
+                 */
+                struct tm utc_tm;
+                gmtime_r(&ts.tv_sec, &utc_tm);
+                int fd = open("/dev/rtc0", O_RDWR);
+                if (fd >= 0) {
+                    struct rtc_time rtctime;
+                    memset(&rtctime, 0, sizeof(rtctime));
+                    rtctime.tm_sec   = utc_tm.tm_sec;
+                    rtctime.tm_min   = utc_tm.tm_min;
+                    rtctime.tm_hour  = utc_tm.tm_hour;
+                    rtctime.tm_mday  = utc_tm.tm_mday;
+                    rtctime.tm_mon   = utc_tm.tm_mon;
+                    rtctime.tm_year  = utc_tm.tm_year;
+                    rtctime.tm_wday  = utc_tm.tm_wday;
+                    int rtc_ret = ioctl(fd, RTC_SET_TIME,
+                                        (unsigned long)&rtctime);
+                    close(fd);
+                    if (rtc_ret >= 0) {
+                        syslog(LOG_INFO,
+                               "[WiFi] NTP time written to RTC\n");
+                    } else {
+                        syslog(LOG_WARNING,
+                               "[WiFi] Failed to write RTC time, errno=%d\n",
+                               errno);
+                    }
+                } else {
+                    syslog(LOG_WARNING,
+                           "[WiFi] Cannot open /dev/rtc0, errno=%d\n", errno);
+                }
+            }
+
             struct tm *tm_info = localtime(&ts.tv_sec);
             char time_buf[64];
             strftime(time_buf, sizeof(time_buf),
                      "%Y-%m-%d %H:%M:%S", tm_info);
-            syslog(LOG_INFO, "[WiFi] NTP sync OK: %s\n", time_buf);
+            syslog(LOG_INFO, "[WiFi] NTP sync %s: %s\n",
+                   synced ? "OK" : "TIMEOUT", time_buf);
         } else {
             syslog(LOG_WARNING, "[WiFi] NTP sync failed: %d\n", ntp_ret);
         }
