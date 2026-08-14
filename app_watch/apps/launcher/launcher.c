@@ -27,6 +27,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <time.h>
+#include <syslog.h>
 
 #include "launcher.h"
 #include "../boot/boot_logo.h"
@@ -42,11 +43,8 @@
 #include <nuttx/power/pm.h>
 #include "../settings/settings.h"
 
-#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
-#  define LAUNCHER_LOG(fmt, ...) printf("[LAUNCHER] " fmt "\n", ##__VA_ARGS__)
-#else
-#  define LAUNCHER_LOG(fmt, ...)
-#endif
+/* 调试打印 — 统一使用 syslog 输出到 SD 卡 */
+#define LAUNCHER_LOG(fmt, ...) syslog(LOG_INFO, "[LAUNCHER] " fmt, ##__VA_ARGS__)
 
 /* 充电界面操作函数声明 */
 extern void setting_charging_create(void);

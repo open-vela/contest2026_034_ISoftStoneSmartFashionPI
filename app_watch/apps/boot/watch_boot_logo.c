@@ -13,17 +13,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <syslog.h>
 
 #include "watch_boot_logo.h"
 #include "../../resource/resource.h"
 #include "../common/watch_pages.h"
 
-/* 调试打印开关 */
-#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
-#  define WATCH_BOOT_LOG(fmt, ...) printf(fmt "\n", ##__VA_ARGS__)
-#else
-#  define WATCH_BOOT_LOG(fmt, ...)
-#endif
+/* 调试打印 — 统一使用 syslog 输出到 SD 卡 */
+#define WATCH_BOOT_LOG(fmt, ...) syslog(LOG_INFO, fmt, ##__VA_ARGS__)
 
 /****************************************************************************
  * Private Data

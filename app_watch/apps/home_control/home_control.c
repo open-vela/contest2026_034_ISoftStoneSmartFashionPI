@@ -13,12 +13,10 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <syslog.h>
 
-#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
-#  define HC_LOG(fmt, ...) printf("[HomeControl] " fmt "\n", ##__VA_ARGS__)
-#else
-#  define HC_LOG(fmt, ...)
-#endif
+/* 调试打印 — 统一使用 syslog 输出到 SD 卡 */
+#define HC_LOG(fmt, ...) syslog(LOG_INFO, "[HomeControl] " fmt, ##__VA_ARGS__)
 #include <sys/socket.h>
 #include <sys/select.h>
 #include <sys/time.h>

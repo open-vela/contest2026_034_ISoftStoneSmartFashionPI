@@ -9,12 +9,10 @@
 #include "../../resource/resource.h"
 #include <stdio.h>
 #include <time.h>
+#include <syslog.h>
 
-#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
-#  define CAL_LOG(fmt, ...) printf("[CALENDAR] " fmt "\n", ##__VA_ARGS__)
-#else
-#  define CAL_LOG(fmt, ...)
-#endif
+/* 调试打印 — 统一使用 syslog 输出到 SD 卡 */
+#define CAL_LOG(fmt, ...) syslog(LOG_INFO, "[CALENDAR] " fmt, ##__VA_ARGS__)
 
 extern const lv_image_dsc_t icon_calendar_left;
 extern const lv_image_dsc_t icon_calendar_right;

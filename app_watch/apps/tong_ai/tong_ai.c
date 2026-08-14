@@ -35,11 +35,8 @@ extern int  watch_volume_set_percent(int percent);
 extern int  watch_volume_get_percent(void);
 extern int  watch_volume_step_delta(int delta);
 
-#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
-#  define TONG_LOG(fmt, ...) printf(fmt, ##__VA_ARGS__)
-#else
-#  define TONG_LOG(fmt, ...)
-#endif
+/* 调试打印 — 统一使用 syslog 输出到 SD 卡 */
+#define TONG_LOG(fmt, ...) syslog(LOG_INFO, fmt, ##__VA_ARGS__)
 
 /* ========== UI状态枚举 ========== */
 typedef enum {

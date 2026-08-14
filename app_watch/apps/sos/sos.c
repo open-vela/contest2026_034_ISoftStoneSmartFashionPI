@@ -5,12 +5,10 @@
 #include <lvgl.h>
 #include <stdio.h>
 #include <string.h>  // For strlen, strcat
+#include <syslog.h>
 
-#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
-#  define SOS_LOG(fmt, ...) printf("[SOS] " fmt "\n", ##__VA_ARGS__)
-#else
-#  define SOS_LOG(fmt, ...)
-#endif
+/* 调试打印 — 统一使用 syslog 输出到 SD 卡 */
+#define SOS_LOG(fmt, ...) syslog(LOG_INFO, "[SOS] " fmt, ##__VA_ARGS__)
 
 
 /* 全局变量 */

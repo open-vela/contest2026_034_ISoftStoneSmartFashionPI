@@ -6,12 +6,9 @@
 #include "../../resource/resource.h"
 #include <nuttx/power/axp2101.h>
 #include <nuttx/arch.h>
+#include <syslog.h>
 
-#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
-#  define SETTINGS_LOG(fmt, ...) printf("[SETTINGS] " fmt "\n", ##__VA_ARGS__)
-#else
-#  define SETTINGS_LOG(fmt, ...)
-#endif
+#define SETTINGS_LOG(fmt, ...) syslog(LOG_INFO, "[SETTINGS] " fmt, ##__VA_ARGS__)
 
 
 static lv_obj_t *system_base = NULL;

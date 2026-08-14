@@ -11,11 +11,8 @@
 #include <unistd.h>
 #include <syslog.h>
 
-#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
-#  define WEATHER_LOG(fmt, ...) printf(fmt, ##__VA_ARGS__)
-#else
-#  define WEATHER_LOG(fmt, ...)
-#endif
+/* 调试打印 — 统一使用 syslog 输出到 SD 卡 */
+#define WEATHER_LOG(fmt, ...) syslog(LOG_INFO, fmt, ##__VA_ARGS__)
 
 /* 样式定义 */
 static lv_style_t *style_btn_normal = NULL;
@@ -454,16 +451,16 @@ static void debug_print_response(const char *tag, const char *data, size_t len)
 {
     WEATHER_LOG("[Weather] === %s response (len=%zu) ===\n", tag, len);
     if (!data || len == 0) { WEATHER_LOG("(empty)\n"); return; }
-    for (size_t i = 0; i < len; i += 64) {
-        size_t chunk = len - i;
-        if (chunk > 64) chunk = 64;
-        for (size_t j = 0; j < chunk; j++) {
-            unsigned char c = (unsigned char)data[i + j];
-            if (c >= 0x20 && c < 0x7f) putchar(c);
-            else WEATHER_LOG("\\x%02x", c);
-        }
-        putchar('\n');
+    /* 原始响应数据过长，仅打印前 128 字节摘要 */
+    size_t preview = len > 128 ? 128 : len;
+    for (size_t i = 0; i < preview; i++) {
+        unsigned char c = (unsigned char)data[i];
+        if (c >= 0x20 && c < 0x7f)
+            WEATHER_LOG("%c", c);
+        else
+            WEATHER_LOG("\\x%02x", c);
     }
+    if (len > 128) WEATHER_LOG(" ... (%zu bytes total)\n", len);
     WEATHER_LOG("[Weather] === end %s ===\n", tag);
 }
 
@@ -889,8 +886,8 @@ static void start_weather_fetch(void)
     pthread_attr_t attr;
     pthread_attr_init(&attr);
     
-    // 设置线程栈大小为24KB，足够支持TLS握手（与 voice_channel.c CONV_THREAD_STACK 一致）
-    const size_t stack_size = 24 * 1024;
+    // 设置线程栈大小为32KB，支持TLS握手 + syslog文件I/O的栈开销
+    const size_t stack_size = 32 * 1024;
     pthread_attr_setstacksize(&attr, stack_size);
     
     pthread_t tid;

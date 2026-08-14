@@ -4,6 +4,7 @@
  */
 
 #include <stdio.h>
+#include <syslog.h>
 #include <lvgl.h>
 #include <nuttx/power/axp2101.h>
 #include "settings.h"
@@ -11,11 +12,7 @@
 #include "../../resource/resource.h"
 #include "../../../../app/watch/apps/common/ui_mode_manager.h"
 
-#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
-#  define UI_MODE_LOG(fmt, ...) printf("[UI_MODE] " fmt "\n", ##__VA_ARGS__)
-#else
-#  define UI_MODE_LOG(fmt, ...)
-#endif
+#define UI_MODE_LOG(fmt, ...) syslog(LOG_INFO, "[UI_MODE] " fmt, ##__VA_ARGS__)
 
 void settings_ui_mode_event_cb(lv_event_t *e)
 {

@@ -11,12 +11,10 @@
 #include <limits.h>
 #include <../../../../apps/graphics/lvgl/lvgl/src/drivers/nuttx/lv_nuttx_touchscreen.h>
 #include <nuttx/lcd/co5300.h>
+#include <syslog.h>
 
-#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
-#  define ALARM_LOG(fmt, ...) printf("[ALARM] " fmt "\n", ##__VA_ARGS__)
-#else
-#  define ALARM_LOG(fmt, ...)
-#endif
+/* 调试打印 — 统一使用 syslog 输出到 SD 卡 */
+#define ALARM_LOG(fmt, ...) syslog(LOG_INFO, "[ALARM] " fmt, ##__VA_ARGS__)
 
 
 

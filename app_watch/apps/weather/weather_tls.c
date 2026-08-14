@@ -8,12 +8,10 @@
 #include <unistd.h>
 #include <sys/socket.h>
 #include <netdb.h>
+#include <syslog.h>
 
-#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
-#  define WEATHER_TLS_LOG(fmt, ...) printf(fmt, ##__VA_ARGS__)
-#else
-#  define WEATHER_TLS_LOG(fmt, ...)
-#endif
+/* 调试打印 — 统一使用 syslog 输出到 SD 卡 */
+#define WEATHER_TLS_LOG(fmt, ...) syslog(LOG_INFO, fmt, ##__VA_ARGS__)
 
 #include <mbedtls/ssl.h>
 #include <mbedtls/entropy.h>
@@ -74,8 +72,15 @@ static int net_connect_with_timeout(int *fd, const char *host, const char *port,
 
         int conn_ret = connect(s, cur->ai_addr, cur->ai_addrlen);
         if (conn_ret == 0) {
-            *fd = s; 
-            ret = 0; 
+            *fd = s;
+            ret = 0;
+            /* 恢复阻塞模式，设置收发超时 */
+            if (flags >= 0) {
+                fcntl(s, F_SETFL, flags & ~O_NONBLOCK);
+            }
+            struct timeval sock_timeout = {timeout_sec, 0};
+            setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &sock_timeout, sizeof(sock_timeout));
+            setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &sock_timeout, sizeof(sock_timeout));
             WEATHER_TLS_LOG("[WeatherTLS] Connected immediately\n");
             break;
         }
@@ -94,8 +99,15 @@ static int net_connect_with_timeout(int *fd, const char *host, const char *port,
                 getsockopt(s, SOL_SOCKET, SO_ERROR, &err, &errlen);
                 
                 if (err == 0) {
-                    *fd = s; 
+                    *fd = s;
                     ret = 0;
+                    /* 恢复阻塞模式，设置收发超时 */
+                    if (flags >= 0) {
+                        fcntl(s, F_SETFL, flags & ~O_NONBLOCK);
+                    }
+                    struct timeval sock_timeout = {timeout_sec, 0};
+                    setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &sock_timeout, sizeof(sock_timeout));
+                    setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &sock_timeout, sizeof(sock_timeout));
                     WEATHER_TLS_LOG("[WeatherTLS] Connected after select\n");
                     break;
                 } else {
@@ -244,24 +256,20 @@ static int weather_tls_connect(void *ctx, const char *hostname,
 
     WEATHER_TLS_LOG("[WeatherTLS] Starting TLS handshake...\n");
     int handshake_attempts = 0;
-    const int max_handshake_attempts = 10;  // 增加重试次数
-    
+    const int max_handshake_attempts = 3;  /* 阻塞模式下无需紧密重试 */
+
     while ((ret = esp_mbedtls_ssl_handshake(&tc->ssl)) != 0) {
         handshake_attempts++;
-        if (ret == MBEDTLS_ERR_SSL_WANT_READ) {
-            WEATHER_TLS_LOG("[WeatherTLS] Handshake waiting for read (attempt %d)\n", handshake_attempts);
-            usleep(10000);  // 10ms等待
-        } else if (ret == MBEDTLS_ERR_SSL_WANT_WRITE) {
-            WEATHER_TLS_LOG("[WeatherTLS] Handshake waiting for write (attempt %d)\n", handshake_attempts);
-            usleep(10000);  // 10ms等待
+        if (ret == MBEDTLS_ERR_SSL_WANT_READ || ret == MBEDTLS_ERR_SSL_WANT_WRITE) {
+            /* 阻塞 socket + SO_RCVTIMEO：read 会等到数据到达或超时 */
+            if (handshake_attempts >= max_handshake_attempts) {
+                WEATHER_TLS_LOG("[WeatherTLS] Handshake timeout after %d retries\n", handshake_attempts);
+                ret = -ETIMEDOUT;
+                goto cleanup;
+            }
+            usleep(10000);  /* 10ms 后重试 */
         } else {
             WEATHER_TLS_LOG("[WeatherTLS] Handshake failed: ret=%d (-0x%x)\n", ret, -ret);
-            goto cleanup;
-        }
-        
-        if (handshake_attempts >= max_handshake_attempts) {
-            WEATHER_TLS_LOG("[WeatherTLS] Handshake timeout after %d attempts\n", max_handshake_attempts);
-            ret = -ETIMEDOUT;
             goto cleanup;
         }
     }

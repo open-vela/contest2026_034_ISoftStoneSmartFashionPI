@@ -3,12 +3,9 @@
 #include <stdio.h>
 #include <math.h>
 #include <nuttx/power/axp2101.h>
+#include <syslog.h>
 
-#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
-#  define BATTERY_LOG(fmt, ...) printf("[BATTERY] " fmt "\n", ##__VA_ARGS__)
-#else
-#  define BATTERY_LOG(fmt, ...)
-#endif
+#define BATTERY_LOG(fmt, ...) syslog(LOG_INFO, "[BATTERY] " fmt, ##__VA_ARGS__)
 
 /* UI对象 */
 static lv_obj_t* battery_base = NULL;

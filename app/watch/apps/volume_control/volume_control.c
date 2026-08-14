@@ -15,6 +15,7 @@
 #include <math.h>
 
 #include <arch/board/board.h>
+#include <syslog.h>
 
 #include "volume_control.h"
 
@@ -23,11 +24,8 @@
  ****************************************************************************/
 
 #define VOL_TAG "[VOLUME] "
-#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
-#define VOL_LOG(fmt, ...)
-#else
-#define VOL_LOG(fmt, ...)
-#endif
+/* 调试打印 — 统一使用 syslog 输出到 SD 卡 */
+#define VOL_LOG(fmt, ...) syslog(LOG_INFO, VOL_TAG fmt, ##__VA_ARGS__)
 
 #define WATCH_VOLUME_PERCENT_MIN  10
 #define WATCH_VOLUME_PERCENT_MAX 100

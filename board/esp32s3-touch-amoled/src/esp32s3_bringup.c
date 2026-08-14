@@ -129,14 +129,8 @@ static int syslog_flush_task(int argc, FAR char *argv[])
 
 #include "esp32s3-touch-amoled.h"
 
-/* 调试打印开关：menuconfig 打开 CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG 后生效。
- * 默认关闭：无 USB 主机时控制台 FIFO 写满会阻塞系统。
- */
-#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
-#  define WATCH_DBG_LOG(fmt, ...) printf(fmt "\n", ##__VA_ARGS__)
-#else
-#  define WATCH_DBG_LOG(fmt, ...)
-#endif
+/* 调试打印 — 统一使用 syslog 输出到 SD 卡 */
+#define WATCH_DBG_LOG(fmt, ...) syslog(LOG_INFO, fmt, ##__VA_ARGS__)
 
 #ifdef CONFIG_ESP32S3_FLASH_MODE_OCT
 void esp32s3_bsp_opiflash_set_required_regs(void)

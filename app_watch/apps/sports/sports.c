@@ -8,12 +8,10 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <syslog.h>
 
-#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
-#  define SPORTS_LOG(fmt, ...) printf("[SPORTS] " fmt "\n", ##__VA_ARGS__)
-#else
-#  define SPORTS_LOG(fmt, ...)
-#endif
+/* 调试打印 — 统一使用 syslog 输出到 SD 卡 */
+#define SPORTS_LOG(fmt, ...) syslog(LOG_INFO, "[SPORTS] " fmt, ##__VA_ARGS__)
 
 
 // 运动数据文件路径

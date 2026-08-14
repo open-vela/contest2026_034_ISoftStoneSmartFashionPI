@@ -1,6 +1,7 @@
 #include <nuttx/config.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <syslog.h>
 
 #include "app_list.h"
 #include "dial.h"
@@ -17,11 +18,8 @@
 #include "launcher.h"
 #include "../weather/weather.h"
 
-#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
-#  define APP_LIST_LOG(fmt, ...) printf("[APP_LIST] " fmt "\n", ##__VA_ARGS__)
-#else
-#  define APP_LIST_LOG(fmt, ...)
-#endif
+/* 调试打印 — 统一使用 syslog 输出到 SD 卡 */
+#define APP_LIST_LOG(fmt, ...) syslog(LOG_INFO, "[APP_LIST] " fmt, ##__VA_ARGS__)
 
 
 

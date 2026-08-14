@@ -200,42 +200,40 @@ static void notify_state(volc_ui_state_t state)
 static int tls_connect(tls_ctx_t *ctx, const char *host, const char *port)
 {
     int ret;
-    printf("[volc_e2e] tls_connect: init mbedtls contexts\n");
+    syslog(LOG_INFO, "[volc_e2e] tls_connect: init mbedtls contexts");
     mbedtls_ssl_init(&ctx->ssl);
     mbedtls_ssl_config_init(&ctx->cfg);
     mbedtls_net_init(&ctx->net);
     mbedtls_ctr_drbg_init(&ctx->ctr_drbg);
 
-    printf("[volc_e2e] tls_connect: seeding DRBG\n");
+    syslog(LOG_INFO, "[volc_e2e] tls_connect: seeding DRBG");
     const char *pers = "volc_e2e";
     ret = mbedtls_ctr_drbg_seed(&ctx->ctr_drbg, entropy_func,
         NULL, (const unsigned char *)pers, strlen(pers));
     if (ret != 0) {
-        printf("[volc_e2e] ctr_drbg_seed FAILED: -0x%04x (entropy source unavailable?)\n", -ret);
-        syslog(LOG_ERR, "[%s] ctr_drbg_seed: -0x%04x\n", TAG, -ret);
+        syslog(LOG_ERR, "[volc_e2e] ctr_drbg_seed FAILED: -0x%04x (entropy source unavailable?)", -ret);
         return -EIO;
     }
 
-    printf("[volc_e2e] tls_connect: connecting TCP %s:%s\n", host, port);
+    syslog(LOG_INFO, "[volc_e2e] tls_connect: connecting TCP %s:%s", host, port);
     ret = mbedtls_net_connect(&ctx->net, host, port, MBEDTLS_NET_PROTO_TCP);
     if (ret != 0) {
-        printf("[volc_e2e] net_connect %s:%s FAILED: -0x%04x (DNS or TCP connect failed)\n", host, port, -ret);
-        syslog(LOG_ERR, "[%s] net_connect %s:%s: -0x%04x\n", TAG, host, port, -ret);
+        syslog(LOG_ERR, "[volc_e2e] net_connect %s:%s FAILED: -0x%04x (DNS or TCP connect failed)", host, port, -ret);
         return -ECONNREFUSED;
     }
-    printf("[volc_e2e] tls_connect: TCP connected, fd=%d\n", ctx->net.fd);
+    syslog(LOG_INFO, "[volc_e2e] tls_connect: TCP connected, fd=%d", ctx->net.fd);
 
     mbedtls_net_set_block(&ctx->net);
 
     struct timeval tv = { .tv_sec = 10, .tv_usec = 0 };
     setsockopt(ctx->net.fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
-    printf("[volc_e2e] tls_connect: configuring SSL defaults\n");
+    syslog(LOG_INFO, "[volc_e2e] tls_connect: configuring SSL defaults");
     ret = mbedtls_ssl_config_defaults(&ctx->cfg,
         MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM,
         MBEDTLS_SSL_PRESET_DEFAULT);
     if (ret != 0) {
-        printf("[volc_e2e] ssl_config_defaults FAILED: -0x%04x\n", -ret);
+        syslog(LOG_ERR, "[volc_e2e] ssl_config_defaults FAILED: -0x%04x", -ret);
         return -EIO;
     }
 
@@ -256,10 +254,10 @@ static int tls_connect(tls_ctx_t *ctx, const char *host, const char *port)
     mbedtls_ssl_conf_authmode(&ctx->cfg, MBEDTLS_SSL_VERIFY_OPTIONAL);
     mbedtls_ssl_conf_rng(&ctx->cfg, mbedtls_ctr_drbg_random, &ctx->ctr_drbg);
 
-    printf("[volc_e2e] tls_connect: setting up SSL\n");
+    syslog(LOG_INFO, "[volc_e2e] tls_connect: setting up SSL");
     ret = mbedtls_ssl_setup(&ctx->ssl, &ctx->cfg);
     if (ret != 0) {
-        printf("[volc_e2e] ssl_setup FAILED: -0x%04x\n", -ret);
+        syslog(LOG_ERR, "[volc_e2e] ssl_setup FAILED: -0x%04x", -ret);
         return -EIO;
     }
 
@@ -267,23 +265,20 @@ static int tls_connect(tls_ctx_t *ctx, const char *host, const char *port)
     mbedtls_ssl_set_bio(&ctx->ssl, &ctx->net,
         mbedtls_net_send, mbedtls_net_recv, NULL);
 
-    printf("[volc_e2e] tls_connect: starting TLS handshake\n");
+    syslog(LOG_INFO, "[volc_e2e] tls_connect: starting TLS handshake");
     while ((ret = mbedtls_ssl_handshake(&ctx->ssl)) != 0) {
         if (ret == MBEDTLS_ERR_SSL_WANT_READ || ret == MBEDTLS_ERR_SSL_WANT_WRITE) {
-            printf("[volc_e2e] handshake stalled (WANT_READ/WANT_WRITE)\n");
-            syslog(LOG_ERR, "[%s] handshake stalled\n", TAG);
+            syslog(LOG_ERR, "[volc_e2e] handshake stalled (WANT_READ/WANT_WRITE)");
             return -ETIMEDOUT;
         }
-        printf("[volc_e2e] handshake FAILED: -0x%04x\n", -ret);
-        syslog(LOG_ERR, "[%s] handshake: -0x%04x\n", TAG, -ret);
+        syslog(LOG_ERR, "[volc_e2e] handshake FAILED: -0x%04x", -ret);
         return -EIO;
     }
 
     /* 切换非阻塞: 防止recv线程持有互斥锁时阻塞send线程 */
     mbedtls_net_set_nonblock(&ctx->net);
 
-    printf("[volc_e2e] TLS connected to %s:%s\n", host, port);
-    syslog(LOG_INFO, "[%s] TLS connected to %s:%s\n", TAG, host, port);
+    syslog(LOG_INFO, "[volc_e2e] TLS connected to %s:%s", host, port);
     return 0;
 }
 
@@ -1594,71 +1589,65 @@ int volc_voice_start(volc_event_cb_t cb)
 
     int ret = tls_connect(s_tls, WS_HOST, WS_PORT);
     if (ret != 0) {
-        printf("[volc_e2e] TLS connect failed: %d\n", ret);
-        syslog(LOG_ERR, "[%s] TLS connect failed: %d\n", TAG, ret);
+        syslog(LOG_ERR, "[volc_e2e] TLS connect failed: %d", ret);
         notify_ui(VOLC_CB_ERROR_MSG, "TLS连接失败");
         tls_free(s_tls); free(s_tls); s_tls = NULL;
         s_running = false;
         return ret;
     }
 
-    printf("[volc_e2e] TLS OK, starting WS handshake\n");
+    syslog(LOG_INFO, "[volc_e2e] TLS OK, starting WS handshake");
     ret = ws_handshake(s_tls, WS_HOST, WS_PATH);
     if (ret != 0) {
-        printf("[volc_e2e] WS handshake failed: %d\n", ret);
-        syslog(LOG_ERR, "[%s] WS handshake failed: %d\n", TAG, ret);
+        syslog(LOG_ERR, "[volc_e2e] WS handshake failed: %d", ret);
         tls_free(s_tls); free(s_tls); s_tls = NULL;
         notify_ui(VOLC_CB_ERROR_MSG, "WebSocket握手失败");
         s_running = false;
         return ret;
     }
 
-    printf("[volc_e2e] WS OK, init playback\n");
+    syslog(LOG_INFO, "[volc_e2e] WS OK, init playback");
     ret = playback_init();
     if (ret != 0) {
-        printf("[volc_e2e] playback_init failed: %d\n", ret);
+        syslog(LOG_ERR, "[volc_e2e] playback_init failed: %d", ret);
         tls_free(s_tls); free(s_tls); s_tls = NULL;
         notify_ui(VOLC_CB_ERROR_MSG, "播放初始化失败");
         s_running = false;
         return ret;
     }
 
-    printf("[volc_e2e] Sending StartConnection\n");
+    syslog(LOG_INFO, "[volc_e2e] Sending StartConnection");
     ret = send_start_connection(s_tls);
     if (ret != 0) {
-        printf("[volc_e2e] StartConnection failed: %d\n", ret);
-        syslog(LOG_ERR, "[%s] StartConnection failed: %d\n", TAG, ret);
+        syslog(LOG_ERR, "[volc_e2e] StartConnection failed: %d", ret);
         tls_free(s_tls); free(s_tls); s_tls = NULL;
         notify_ui(VOLC_CB_ERROR_MSG, "StartConnection失败");
         s_running = false;
         return ret;
     }
 
-    printf("[volc_e2e] Starting recv thread\n");
+    syslog(LOG_INFO, "[volc_e2e] Starting recv thread");
     pthread_create(&s_recv_tid, NULL, recv_thread, NULL);
 
-    printf("[volc_e2e] Waiting for ConnectionStarted...\n");
+    syslog(LOG_INFO, "[volc_e2e] Waiting for ConnectionStarted...");
     for (int i = 0; i < 50 && s_running; i++) usleep(100000);
     if (!s_running) {
-        printf("[volc_e2e] ConnectionStarted timeout\n");
-        syslog(LOG_ERR, "[%s] ConnectionStarted timeout\n", TAG);
+        syslog(LOG_ERR, "[volc_e2e] ConnectionStarted timeout");
         goto fail;
     }
-    printf("[volc_e2e] ConnectionStarted OK\n");
+    syslog(LOG_INFO, "[volc_e2e] ConnectionStarted OK");
 
-    printf("[volc_e2e] Sending StartSession\n");
+    syslog(LOG_INFO, "[volc_e2e] Sending StartSession");
     ret = send_start_session(s_tls, s_session_id, DEFAULT_SPEAKER);
     if (ret != 0) {
-        printf("[volc_e2e] StartSession failed: %d\n", ret);
-        syslog(LOG_ERR, "[%s] StartSession failed: %d\n", TAG, ret);
+        syslog(LOG_ERR, "[volc_e2e] StartSession failed: %d", ret);
         goto fail;
     }
 
-    printf("[volc_e2e] Waiting for SessionStarted...\n");
+    syslog(LOG_INFO, "[volc_e2e] Waiting for SessionStarted...");
     for (int i = 0; i < 100 && s_running && !s_session_active; i++) usleep(100000);
     if (!s_running || !s_session_active) {
-        printf("[volc_e2e] SessionStarted timeout\n");
-        syslog(LOG_ERR, "[%s] SessionStarted timeout\n", TAG);
+        syslog(LOG_ERR, "[volc_e2e] SessionStarted timeout");
         goto fail;
     }
 
