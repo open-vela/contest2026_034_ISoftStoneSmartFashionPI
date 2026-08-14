@@ -374,6 +374,16 @@ int esp32s3_bringup(void)
     }
 #endif /*CONFIG_I2C_DRIVER*/
 
+  /* 设置东八区时区。必须放在 RTC 初始化分支之外：
+   * 若 PCF85063 初始化失败而不设置 TZ，mktime()/localtime()
+   * 将按 UTC 处理，手动设置时间时会把本地时间当作 UTC 写入
+   * 系统时钟和 RTC，导致时间快 8 小时。
+   */
+#ifdef CONFIG_LIBC_LOCALTIME
+  setenv("TZ", "CST-8", 1);
+  tzset();
+#endif
+
 #ifdef CONFIG_RTC_PCF85063
   struct i2c_master_s *i2c;
   
@@ -392,8 +402,6 @@ int esp32s3_bringup(void)
       else
         {
           clock_synchronize(NULL);
-          setenv("TZ", "CST-8", 1);
-          tzset();
         }
     }
 #endif /*CONFIG_RTC_PCF85063*/
