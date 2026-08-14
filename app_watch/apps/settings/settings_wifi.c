@@ -11,6 +11,7 @@
 #include <net/if.h>
 #include <sys/ioctl.h>
 #include <pthread.h>
+#include <time.h>
 #include <syslog.h>
 #include "netutils/netlib.h"
 #include "../common/watch_pages.h"
@@ -889,7 +890,29 @@ static void *wifi_reconnect_thread(void *arg)
         }
         close(sock);
     }
-    
+
+    /* WiFi连接成功后，自动同步NTP时间 */
+#ifdef CONFIG_NETUTILS_NTPCLIENT
+    if (strlen(g_connected_ssid) > 0) {
+        extern int ntpc_start(void);
+        syslog(LOG_INFO, "[WiFi] NTP sync: starting (server: %s)\n",
+               CONFIG_NETUTILS_NTPCLIENT_SERVER);
+        int ntp_ret = ntpc_start();
+        if (ntp_ret >= 0) {
+            sleep(3);
+            struct timespec ts;
+            clock_gettime(CLOCK_REALTIME, &ts);
+            struct tm *tm_info = localtime(&ts.tv_sec);
+            char time_buf[64];
+            strftime(time_buf, sizeof(time_buf),
+                     "%Y-%m-%d %H:%M:%S", tm_info);
+            syslog(LOG_INFO, "[WiFi] NTP sync OK: %s\n", time_buf);
+        } else {
+            syslog(LOG_WARNING, "[WiFi] NTP sync failed: %d\n", ntp_ret);
+        }
+    }
+#endif
+
     g_is_reconnecting = false;
     WATCH_DBG_LOG("[WiFi] Reconnect thread finished, connected_ssid=%s", 
            strlen(g_connected_ssid) > 0 ? g_connected_ssid : "none");
