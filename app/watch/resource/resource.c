@@ -17,6 +17,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <syslog.h>
 
 #include "image/generated/lvgl_assets.h"
 #include "power_png/generated/power_png_assets.h"
@@ -34,18 +35,8 @@
 
 #define ARRAY_SIZE(ARRAY) (sizeof(ARRAY) / sizeof(ARRAY[0]))
 
-/* 调试开关：menuconfig 打开 CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG 后生效 */
-#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
-#define RESOURCE_DEBUG 1
-#else
-#define RESOURCE_DEBUG 0
-#endif
-
-#if RESOURCE_DEBUG
-#define RES_LOG(fmt, ...) printf("[RESOURCE] " fmt "\n", ##__VA_ARGS__)
-#else
-#define RES_LOG(fmt, ...)
-#endif
+/* 调试打印 — 统一使用 syslog 输出到 SD 卡 */
+#define RES_LOG(fmt, ...) syslog(LOG_INFO, "[RESOURCE] " fmt, ##__VA_ARGS__)
 
 /**********************
  *      TYPEDEFS

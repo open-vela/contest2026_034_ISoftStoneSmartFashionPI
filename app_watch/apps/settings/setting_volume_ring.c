@@ -5,12 +5,9 @@
 #include "../../resource/resource.h"
 #include <stdio.h>
 #include <arch/board/board.h>
+#include <syslog.h>
 
-#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
-#  define VOLUME_LOG(fmt, ...) printf("[VOLUME] " fmt "\n", ##__VA_ARGS__)
-#else
-#  define VOLUME_LOG(fmt, ...)
-#endif
+#define VOLUME_LOG(fmt, ...) syslog(LOG_INFO, "[VOLUME] " fmt, ##__VA_ARGS__)
 
 /* UI对象 */
 static lv_obj_t* volume_set_base = NULL;

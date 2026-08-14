@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <debug.h>
 #include <errno.h>
+#include <syslog.h>
 
 #include <nuttx/arch.h>
 #include <nuttx/board.h>
@@ -19,14 +20,8 @@
 #include "esp32s3_board_i2c.h"
 #include "esp32s3-touch-amoled.h"
 
-/* 调试打印开关：menuconfig 打开 CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG 后生效。
- * 默认关闭：无 USB 主机时控制台 FIFO 写满会阻塞系统。
- */
-#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
-#  define WATCH_DBG_LOG(fmt, ...) printf(fmt "\n", ##__VA_ARGS__)
-#else
-#  define WATCH_DBG_LOG(fmt, ...)
-#endif
+/* 调试打印 — 统一使用 syslog 输出到 SD 卡 */
+#define WATCH_DBG_LOG(fmt, ...) syslog(LOG_INFO, fmt, ##__VA_ARGS__)
 
 static struct i2c_master_s *i2c;
 static struct battery_charger_dev_s *g_axp2101_dev = NULL;

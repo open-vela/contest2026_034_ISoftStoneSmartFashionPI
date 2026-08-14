@@ -52,11 +52,8 @@ extern void tool_system_alert_play(int alert_id, int force);
 
 #define PAGE_TAG "[PAGE] "
 
-#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
-#define PAGE_LOG(fmt, ...)  printf(PAGE_TAG fmt "\n", ##__VA_ARGS__)
-#else
-#define PAGE_LOG(fmt, ...)
-#endif
+/* 调试打印 — 统一使用 syslog 输出到 SD 卡 */
+#define PAGE_LOG(fmt, ...)  syslog(LOG_INFO, PAGE_TAG fmt, ##__VA_ARGS__)
 
 #define MAX_PAGE_STACK_SIZE 16
 

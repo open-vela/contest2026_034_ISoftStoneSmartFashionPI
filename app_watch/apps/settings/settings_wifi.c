@@ -26,11 +26,7 @@
 #include "../launcher/launcher.h"
 #include "../../resource/image/generated/lvgl_assets.h"
 
-#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
-#  define WATCH_DBG_LOG(fmt, ...) printf(fmt "\n", ##__VA_ARGS__)
-#else
-#  define WATCH_DBG_LOG(fmt, ...)
-#endif
+#define WATCH_DBG_LOG(fmt, ...) syslog(LOG_INFO, fmt, ##__VA_ARGS__)
 
 /* WiFi 扫描结果结构 */
 typedef struct {

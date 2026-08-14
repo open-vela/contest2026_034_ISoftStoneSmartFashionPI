@@ -25,12 +25,10 @@
 #include <../../../../apps/graphics/lvgl/lvgl/src/drivers/nuttx/lv_nuttx_touchscreen.h>
 #include "../sos/sos.h"
 #include "../launcher/dial.h"
+#include <syslog.h>
 
-#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
-#  define SENSOR_LOG(fmt, ...) printf("[SENSOR] " fmt "\n", ##__VA_ARGS__)
-#else
-#  define SENSOR_LOG(fmt, ...)
-#endif
+/* 调试打印 — 统一使用 syslog 输出到 SD 卡 */
+#define SENSOR_LOG(fmt, ...) syslog(LOG_INFO, "[SENSOR] " fmt, ##__VA_ARGS__)
 
 #define SENSOR_SAMPLE_INTERVAL   10000
 #define SENSOR_POLL_TIMEOUT      1000

@@ -29,6 +29,7 @@
 #include <time.h>
 #include <math.h>
 #include <nuttx/power/axp2101.h>
+#include <syslog.h>
 
 #include "dial.h"
 #include "app_list.h"
@@ -36,11 +37,8 @@
 #include "../../resource/resource.h"
 #include "launcher.h"
 
-#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
-#  define DIAL_LOG(fmt, ...) printf("[DIAL] " fmt "\n", ##__VA_ARGS__)
-#else
-#  define DIAL_LOG(fmt, ...)
-#endif
+/* 调试打印 — 统一使用 syslog 输出到 SD 卡 */
+#define DIAL_LOG(fmt, ...) syslog(LOG_INFO, "[DIAL] " fmt, ##__VA_ARGS__)
 
 /****************************************************************************
  * Private Data

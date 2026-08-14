@@ -10,14 +10,11 @@
 #include "../launcher/launcher.h"
 #include "../../resource/resource.h"
 #include <stdio.h>
+#include <syslog.h>
 #include <nuttx/lcd/co5300.h>
 #include <../../../../apps/graphics/lvgl/lvgl/src/drivers/nuttx/lv_nuttx_touchscreen.h>
 
-#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
-#  define DISPLAY_LOG(fmt, ...) printf("[DISPLAY] " fmt "\n", ##__VA_ARGS__)
-#else
-#  define DISPLAY_LOG(fmt, ...)
-#endif
+#define DISPLAY_LOG(fmt, ...) syslog(LOG_INFO, "[DISPLAY] " fmt, ##__VA_ARGS__)
 
 /* UI对象 */
 static lv_obj_t* display_base = NULL;

@@ -26,6 +26,7 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <netutils/netlib.h>
+#include <syslog.h>
 
 #include "home_control.h"
 #include "apps/settings/settings_wifi.h"  /* 使用手表UI的WiFi设置头文件 */
@@ -34,11 +35,8 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
-#define HC_LOG(fmt, ...)  printf("[HomeControl] " fmt "\n", ##__VA_ARGS__)
-#else
-#define HC_LOG(fmt, ...)
-#endif
+/* 调试打印 — 统一使用 syslog 输出到 SD 卡 */
+#define HC_LOG(fmt, ...)  syslog(LOG_INFO, "[HomeControl] " fmt, ##__VA_ARGS__)
 
 #define HC_DISCOVERY_PORT     9999
 #define HC_DISCOVERY_MAGIC    "DISCOVER_REQ"

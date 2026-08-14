@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <syslog.h>
 
 #include "image/generated/lvgl_assets.h"
 #include "power_jpg/generated/power_jpg_assets.h"
@@ -26,12 +27,8 @@
 #define IMG_POWER_JPG_BASE_PATH "/power_jpg/"
 #define IMG_POWER_BASE_PATH "/power_png/"
 
-/* 调试开关 - 受 CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG 控制 */
-#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
-#define RES_LOG(fmt, ...) printf("[RESOURCE] " fmt "\n", ##__VA_ARGS__)
-#else
-#define RES_LOG(fmt, ...)
-#endif
+/* 调试打印 — 统一使用 syslog 输出到 SD 卡 */
+#define RES_LOG(fmt, ...) syslog(LOG_INFO, "[RESOURCE] " fmt, ##__VA_ARGS__)
 
 /**********************
  *      TYPEDEFS

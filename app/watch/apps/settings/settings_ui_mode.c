@@ -26,6 +26,7 @@
 #include <stdio.h>
 #include <lvgl/lvgl.h>
 #include <nuttx/power/axp2101.h>
+#include <syslog.h>
 
 #include "settings.h"
 #include "../common/watch_pages.h"
@@ -35,11 +36,8 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
-#  define UI_MODE_LOG(fmt, ...) printf("[UI_MODE] " fmt "\n", ##__VA_ARGS__)
-#else
-#  define UI_MODE_LOG(fmt, ...)
-#endif
+/* 调试打印 — 统一使用 syslog 输出到 SD 卡 */
+#define UI_MODE_LOG(fmt, ...) syslog(LOG_INFO, "[UI_MODE] " fmt, ##__VA_ARGS__)
 
 /****************************************************************************
  * Public Functions

@@ -9,12 +9,10 @@
 #include "../launcher/launcher.h"
 #include <stdio.h>
 #include <time.h>
+#include <syslog.h>
 
-#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
-#  define STOPWATCH_LOG(fmt, ...) printf("[STOPWATCH] " fmt "\n", ##__VA_ARGS__)
-#else
-#  define STOPWATCH_LOG(fmt, ...)
-#endif
+/* 调试打印 — 统一使用 syslog 输出到 SD 卡 */
+#define STOPWATCH_LOG(fmt, ...) syslog(LOG_INFO, "[STOPWATCH] " fmt, ##__VA_ARGS__)
 
 /* UI对象 */
 static lv_obj_t* stopwatch_base = NULL;

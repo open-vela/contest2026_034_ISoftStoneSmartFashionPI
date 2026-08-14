@@ -20,6 +20,7 @@
 #include <stdio.h>
 #include <time.h>
 #include <unistd.h>
+#include <syslog.h>
 
 #include <lvgl/lvgl.h>
 #include "esp32s3_gpio.h"
@@ -50,11 +51,8 @@ extern void voice_channel_request_mic_mute(bool mute);
 /* Short press duration in milliseconds (100ms) */
 #define SHORT_PRESS_DURATION_MS 100
 
-#ifdef CONFIG_EXAMPLES_CONTEST2026_WATCH_DEBUG
-#define BTN_LOG(fmt, ...)  printf("[BTN] " fmt "\n", ##__VA_ARGS__)
-#else
-#define BTN_LOG(fmt, ...)
-#endif
+/* 调试打印 — 统一使用 syslog 输出到 SD 卡 */
+#define BTN_LOG(fmt, ...)  syslog(LOG_INFO, "[BTN] " fmt, ##__VA_ARGS__)
 
 /* Polling interval in milliseconds */
 #define POLL_INTERVAL_MS        10
