@@ -896,6 +896,9 @@ static void *wifi_reconnect_thread(void *arg)
         close(sock);
     }
 
+    /* WiFi连接已完成，先清除重连标志让 UI 定时器能正常退出 */
+    g_is_reconnecting = false;
+
     /* WiFi连接成功后，自动同步NTP时间 */
 #ifdef CONFIG_NETUTILS_NTPCLIENT
     if (strlen(g_connected_ssid) > 0) {
@@ -968,7 +971,6 @@ static void *wifi_reconnect_thread(void *arg)
     }
 #endif
 
-    g_is_reconnecting = false;
     WATCH_DBG_LOG("[WiFi] Reconnect thread finished, connected_ssid=%s", 
            strlen(g_connected_ssid) > 0 ? g_connected_ssid : "none");
     
@@ -1662,7 +1664,12 @@ static void wifi_status_check_timer_cb(lv_timer_t *timer)
 
 static void wifi_scan_timer_cb(lv_timer_t *timer)
 {
+    /* 页面已退出时停止处理 */
+    if (!g_list_cont) return;
+
     static bool was_scanning = false;
+    static int  last_count   = -1;
+    static char last_ssid[64] = {0};
     bool is_scanning = g_wifi_scan_data.scanning;
 
     /* 只在状态变化时打印日志，避免扫描期间每秒刷屏 */
@@ -1672,7 +1679,14 @@ static void wifi_scan_timer_cb(lv_timer_t *timer)
         was_scanning = is_scanning;
     }
 
-    wifi_update_list_ui(g_list_cont);
+    /* 仅在数据变化时重建 UI，避免每秒清空+重建整列表 */
+    if (g_wifi_scan_data.count != last_count ||
+        strcmp(g_connected_ssid, last_ssid) != 0) {
+        last_count = g_wifi_scan_data.count;
+        strncpy(last_ssid, g_connected_ssid, sizeof(last_ssid) - 1);
+        last_ssid[sizeof(last_ssid) - 1] = '\0';
+        wifi_update_list_ui(g_list_cont);
+    }
 
     if (!is_scanning && !g_is_reconnecting) {
         if (g_update_timer) {
@@ -1680,6 +1694,8 @@ static void wifi_scan_timer_cb(lv_timer_t *timer)
             g_update_timer = NULL;
         }
         was_scanning = false;
+        last_count = -1;  /* 重置以便下次进入页面时刷新 */
+        last_ssid[0] = '\0';
     }
 }
 
@@ -1777,6 +1793,17 @@ static void wifi_slide_gesture_handler(lv_event_t * e)
                 if(delta_x > 50 && abs(delta_x) > abs(delta_y)) {
                     lv_obj_t * cont = lv_event_get_target(e);
                     if(cont) {
+                        /* 退出前清理定时器和指针，防止 use-after-free 崩溃 */
+                        if (g_update_timer) {
+                            lv_timer_del(g_update_timer);
+                            g_update_timer = NULL;
+                        }
+                        if (g_status_timer) {
+                            lv_timer_del(g_status_timer);
+                            g_status_timer = NULL;
+                        }
+                        g_list_cont = NULL;
+                        g_is_reconnecting = false;
                         vw_watch_pop_page(cont);
                         lv_obj_del(cont);
                     }
