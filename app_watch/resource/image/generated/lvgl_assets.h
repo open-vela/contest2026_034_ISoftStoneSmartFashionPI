@@ -125,6 +125,7 @@ LV_IMAGE_DECLARE(icon_set_right_arrow);
 LV_IMAGE_DECLARE(icon_set_shutdown);
 LV_IMAGE_DECLARE(icon_set_system);
 LV_IMAGE_DECLARE(icon_set_time);
+LV_IMAGE_DECLARE(icon_set_ui_replace);
 LV_IMAGE_DECLARE(icon_set_volume_ring);
 LV_IMAGE_DECLARE(icon_set_wifi);
 LV_IMAGE_DECLARE(icon_home_air);

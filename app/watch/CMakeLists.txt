@@ -62,6 +62,9 @@ if(CONFIG_EXAMPLES_CONTEST2026_WATCH_BOOT)
   set(VW_RESOURCE_CSRCS
     ${VENDOR_WATCH_DIR}/resource/resource.c
   )
+  # 新增图片资源后需重新 configure（GLOB 无 CONFIGURE_DEPENDS）：
+  # 修改本文件（或运行 flash_esp32s3.sh -C）触发 CMake 重新扫描 generated 目录。
+  # 生成流程：assert/ 下 PNG → nuttx/tools/convert_lvgl_assets.py → image/generated/*.c
   file(GLOB VW_IMG_ASSETS ${VENDOR_WATCH_DIR}/resource/image/generated/*.c)
   file(GLOB VW_FONT_ASSETS ${VENDOR_WATCH_DIR}/resource/font/generated/*.c)
   # Exclude AlibabaPuHuiTi font (removed to save ~163KB DRAM)
