@@ -60,13 +60,26 @@ extern void esp_fill_random(void *buf, size_t len);
 #define WS_PORT "443"
 #define WS_PATH "/api/v3/realtime/dialogue"
 
-#define VOLC_APP_ID   "5467075766"
-#define VOLC_TOKEN    "QJcPmS0GkGfNn_eaJLWqwmCPxnoS56c6"
+/* X-Api-App-Key 是该资源的固定常量（非 App ID），与表情模式一致保持硬编码 */
 #define VOLC_APP_KEY  "PlgvMymc7f3tQnJ6"
 #define VOLC_RESOURCE "volc.speech.dialog"
 
-#define DEFAULT_SPEAKER "zh_female_vv_jupiter_bigtts"
 #define DEFAULT_MODEL   "1.2.1.1"
+
+/* 凭证默认值（当 config.json 不存在时使用） */
+#define DEFAULT_APP_ID   "5467075766"
+#define DEFAULT_TOKEN    "QJcPmS0GkGfNn_eaJLWqwmCPxnoS56c6"
+#define DEFAULT_SPEAKER  "zh_female_vv_jupiter_bigtts"
+
+/* 凭证全局变量 — 从 config.json 加载，默认值为硬编码后备
+ * 与表情模式 (volc_e2e_conn.c) 的 volc_e2e_load_config() 模式一致,
+ * 读取同一份 /mnt/spif/ai_agent/config/config.json (SPI Flash 持久化) */
+static char s_app_id[64];
+static char s_token[192];
+static char s_speaker[48];
+
+/* 配置文件路径 — 与表情模式 ai_agent 的 config_store 持久化路径一致 */
+#define VOLC_CONFIG_FILE "/mnt/spif/ai_agent/config/config.json"
 
 #define CAPTURE_DEVICE   "/dev/audio/pcm_in0"
 #define CAPTURE_CHUNK_MS 20
@@ -86,6 +99,83 @@ extern void esp_fill_random(void *buf, size_t len);
 #define TTS_BUF_CAP    (2 * 1024 * 1024)  /* 2MB PCM缓冲区 */
 
 static const char *TAG = "volc_e2e";
+
+/* ========== 凭证加载 (从 JSON 配置文件) ==========
+ *
+ * 与表情模式 volc_e2e_conn.c 的 volc_e2e_load_config() 对齐:
+ *   - 读取 /mnt/spif/ai_agent/config/config.json (SPI Flash 持久化副本)
+ *   - JSON 键名与 config_store 的 AGENT_CFG_KEY_VOLC_* 完全一致:
+ *     volc_appkey → app_id
+ *     volc_token → token (后备: volc_api_key)
+ *     volc_e2e_speaker → speaker (后备: volc_speaker)
+ *   - 文件不存在或键缺失时回退到硬编码默认值
+ */
+static void volc_load_config(void)
+{
+    /* 先设置硬编码默认值 */
+    snprintf(s_app_id, sizeof(s_app_id), "%s", DEFAULT_APP_ID);
+    snprintf(s_token, sizeof(s_token), "%s", DEFAULT_TOKEN);
+    snprintf(s_speaker, sizeof(s_speaker), "%s", DEFAULT_SPEAKER);
+
+    FILE *fp = fopen(VOLC_CONFIG_FILE, "r");
+    if (!fp) {
+        syslog(LOG_INFO, "[%s] config.json not found, using defaults\n", TAG);
+        return;
+    }
+
+    fseek(fp, 0, SEEK_END);
+    long sz = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+    if (sz <= 0 || sz > 8192) {
+        fclose(fp);
+        syslog(LOG_ERR, "[%s] config.json size invalid: %ld\n", TAG, sz);
+        return;
+    }
+
+    char *buf = malloc((size_t)(sz + 1));
+    if (!buf) { fclose(fp); return; }
+    size_t n = fread(buf, 1, (size_t)sz, fp);
+    buf[n] = '\0';
+    fclose(fp);
+
+    cJSON *root = cJSON_Parse(buf);
+    free(buf);
+    if (!root) {
+        syslog(LOG_ERR, "[%s] config.json parse failed\n", TAG);
+        return;
+    }
+
+    cJSON *item;
+
+    /* volc_appkey → app_id */
+    item = cJSON_GetObjectItem(root, "volc_appkey");
+    if (cJSON_IsString(item) && item->valuestring[0])
+        snprintf(s_app_id, sizeof(s_app_id), "%s", item->valuestring);
+
+    /* volc_token → token (后备: volc_api_key) */
+    item = cJSON_GetObjectItem(root, "volc_token");
+    if (cJSON_IsString(item) && item->valuestring[0]) {
+        snprintf(s_token, sizeof(s_token), "%s", item->valuestring);
+    } else {
+        item = cJSON_GetObjectItem(root, "volc_api_key");
+        if (cJSON_IsString(item) && item->valuestring[0])
+            snprintf(s_token, sizeof(s_token), "%s", item->valuestring);
+    }
+
+    /* volc_e2e_speaker → speaker (后备: volc_speaker) */
+    item = cJSON_GetObjectItem(root, "volc_e2e_speaker");
+    if (cJSON_IsString(item) && item->valuestring[0]) {
+        snprintf(s_speaker, sizeof(s_speaker), "%s", item->valuestring);
+    } else {
+        item = cJSON_GetObjectItem(root, "volc_speaker");
+        if (cJSON_IsString(item) && item->valuestring[0])
+            snprintf(s_speaker, sizeof(s_speaker), "%s", item->valuestring);
+    }
+
+    cJSON_Delete(root);
+    syslog(LOG_INFO, "[%s] config loaded: app_id=%.6s... token=%.6s...(len=%zu) speaker=%s\n",
+           TAG, s_app_id, s_token, strlen(s_token), s_speaker);
+}
 
 /* ========== TLS上下文 ========== */
 
@@ -378,11 +468,11 @@ static int ws_handshake(tls_ctx_t *ctx, const char *host, const char *path)
         "X-Api-App-Key: %s\r\n"
         "\r\n",
         path, host, (int)key_b64_len, key_b64,
-        VOLC_APP_ID, VOLC_TOKEN, VOLC_RESOURCE, VOLC_APP_KEY);
+        s_app_id, s_token, VOLC_RESOURCE, VOLC_APP_KEY);
 
     if (n <= 0 || n >= (int)sizeof(req)) return -EOVERFLOW;
 
-    syslog(LOG_INFO, "[%s] WS handshake: %s\n", TAG, path);
+    syslog(LOG_INFO, "[%s] WS handshake: %s (app_id=%.6s...)\n", TAG, path, s_app_id);
 
     int ret = tls_write_all(ctx, (const unsigned char *)req, (size_t)n);
     if (ret != 0) return ret;
@@ -1562,6 +1652,7 @@ static void *send_thread(void *arg)
 
 int volc_voice_init(void)
 {
+    volc_load_config();
     generate_uuid(s_session_id, sizeof(s_session_id));
     syslog(LOG_INFO, "[%s] session_id=%s\n", TAG, s_session_id);
     return 0;
@@ -1638,7 +1729,7 @@ int volc_voice_start(volc_event_cb_t cb)
     syslog(LOG_INFO, "[volc_e2e] ConnectionStarted OK");
 
     syslog(LOG_INFO, "[volc_e2e] Sending StartSession");
-    ret = send_start_session(s_tls, s_session_id, DEFAULT_SPEAKER);
+    ret = send_start_session(s_tls, s_session_id, s_speaker);
     if (ret != 0) {
         syslog(LOG_ERR, "[volc_e2e] StartSession failed: %d", ret);
         goto fail;
