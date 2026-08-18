@@ -359,13 +359,9 @@ static void try_volume_adjust(const char *text)
         return;
     }
 
-    /* ── 静音 ────────────────────────────────────────────── */
-    if (strstr(text, "静音") || strstr(text, "关掉声音") ||
-        strstr(text, "关闭声音")) {
-        watch_volume_set_percent(0);
-        syslog(LOG_INFO, "[TONG] vol mute\n");
-        return;
-    }
+    /* [REMOVED 2026-08-17] 语音"静音"分支已删除：音量设 0 后服务器 TTS
+     * 确认与后续回复均不可闻；且"取消静音/解除静音"含"静音"子串，会
+     * 在此被抢先匹配反而触发静音。"静音"交给服务器人格化应答（可闻）。 */
 
     /* ── 取消静音 ────────────────────────────────────────── */
     if (strstr(text, "取消静音") || strstr(text, "解除静音") ||

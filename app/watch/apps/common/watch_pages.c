@@ -382,11 +382,9 @@ static void restore_timer_cb(lv_timer_t *timer)
     }
 }
 
-/* 设置默认表情（开机后显示 excited，不启动轮播） */
-void watch_expression_page_set_default(void)
-{
-    watch_expression_page_set_face("excited", 0);
-}
+/* [REMOVED 2026-08-17] watch_expression_page_set_default()（excited）删除：
+ * 无任何调用者的死代码，且"开机默认 excited"与"每轮 listening→thinking→
+ * 回复脸→listening 的状态机独占回合内表情"的设计冲突。 */
 
 int watch_expression_page_set_face(const char* face_id, int duration_ms)
 {
