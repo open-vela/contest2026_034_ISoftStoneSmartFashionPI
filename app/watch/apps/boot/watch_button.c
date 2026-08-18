@@ -21,8 +21,10 @@
 #include <time.h>
 #include <unistd.h>
 #include <syslog.h>
+#include <pthread.h>
 
 #include <lvgl/lvgl.h>
+#include <nuttx/arch.h>          /* up_systemreset() — SoC 软件复位 */
 #include "esp32s3_gpio.h"
 
 #include "watch_button.h"
@@ -249,6 +251,36 @@ static void handle_boot_short_press(void)
 }
 
 /****************************************************************************
+ * Name: reboot_thread
+ *
+ * Description:
+ *   独立线程执行重启（与语音命令 volc_event_callback 路径一致）
+ *   在 LVGL 定时器回调中直接调用 axp2101_power_reset() 不可靠，
+ *   改为在独立 pthread 中执行，确保与语音命令相同的线程上下文。
+ ****************************************************************************/
+static void *reboot_thread(void *arg)
+{
+  (void)arg;
+  BTN_LOG("Reboot thread started, saving ui_mode=1 (watch)");
+
+  /* 直接写文件（与语音命令 tong_ai.c 完全一致的模式） */
+  FILE *fp = fopen("/mnt/spif/ui_mode.json", "w");
+  if (fp)
+    {
+      fprintf(fp, "{\"ui_mode\":1}\n");
+      fclose(fp);
+    }
+  BTN_LOG("ui_mode saved, calling axp2101_power_reset()");
+
+  axp2101_power_reset();
+  /* 若 PMU 复位未生效，兜底用 SoC 软件复位 */
+  BTN_LOG("axp2101_power_reset returned, trying up_systemreset()");
+  up_systemreset();
+  /* 不会到达这里 */
+  return NULL;
+}
+
+/****************************************************************************
  * Name: handle_boot_long_press
  *
  * Description:
@@ -271,9 +303,17 @@ static void handle_boot_long_press(void)
       watch_expression_page_set_face("love", 0);
       lv_refr_now(NULL);
 
-      /* 保存手表模式到持久化配置并重启（与 settings_ui_mode.c 相同的模式） */
-      ui_mode_save(UI_MODE_WATCH);
-      axp2101_power_reset();
+      /* 在独立线程中执行重启（与语音命令相同的线程上下文） */
+      pthread_t tid;
+      pthread_attr_t attr;
+      pthread_attr_init(&attr);
+      pthread_attr_setstacksize(&attr, 4096);
+      if (pthread_create(&tid, &attr, reboot_thread, NULL) != 0)
+        {
+          BTN_LOG("Failed to create reboot thread");
+        }
+      pthread_attr_destroy(&attr);
+      pthread_detach(tid);
     }
   else
     {
