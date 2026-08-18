@@ -82,9 +82,9 @@ static void settings_app_create(void)
     battery_btn = lv_list_add_btn(list, vw_resource_get_img("icon_set_battery"), "电池");
     volume_btn = lv_list_add_btn(list, vw_resource_get_img("icon_set_volume_ring"), "声音");
     display_btn = lv_list_add_btn(list, vw_resource_get_img("icon_set_light"), "显示");
-    about_btn = lv_list_add_btn(list, vw_resource_get_img("icon_set_about"), "关于");
+    ui_mode_btn = lv_list_add_btn(list, vw_resource_get_img("icon_set_ui_replace"), "潮玩模式");
     system_btn = lv_list_add_btn(list, vw_resource_get_img("icon_set_system"), "关机与重启");
-    ui_mode_btn = lv_list_add_btn(list, vw_resource_get_img("icon_set_ui_replace"), "切换为潮玩模式");
+    about_btn = lv_list_add_btn(list, vw_resource_get_img("icon_set_about"), "关于");
     
     setup_settings_button(wifi_btn);
 
