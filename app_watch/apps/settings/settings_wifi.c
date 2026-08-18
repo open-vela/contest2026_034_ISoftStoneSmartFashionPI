@@ -87,6 +87,8 @@ static bool g_wifi_enabled = false;  // WiFi 开关状态
 static bool g_is_reconnecting = false;  // 是否正在重连
 static time_t g_connect_time = 0;  // 连接建立时间
 static int g_status_fail_count = 0;  // 连续状态检查失败次数
+static int g_reconnect_retry = 0;  // 重连重试计数
+#define MAX_RECONNECT_RETRY 5  // 最多重试5次（每3s检查一次，约15s）
 
 /* 函数前向声明 */
 static void keyboard_btn_event_cb(lv_event_t *e);
@@ -830,7 +832,8 @@ static void wifi_refresh_btn_cb(lv_event_t *e)
     }
 }
 
-/* WiFi自动重连线程 */
+/* WiFi自动重连线程 — 扫描SSID匹配后连接 */
+/* 策略：先扫描可用WiFi，匹配已保存列表，仅连接实际存在的SSID */
 static void *wifi_reconnect_thread(void *arg)
 {
     WATCH_DBG_LOG("[WiFi] Reconnect thread started");
@@ -838,63 +841,159 @@ static void *wifi_reconnect_thread(void *arg)
     // 等待WiFi接口就绪
     sleep(1);
     
-    // 找到最后一个连接的WiFi（列表中的第一个）
     if (g_saved_wifi_count == 0) {
         WATCH_DBG_LOG("[WiFi] No saved WiFi for auto-reconnect");
         g_is_reconnecting = false;
         return NULL;
     }
     
-    const char *ssid = g_saved_wifi_list[0].ssid;
-    const char *password = g_saved_wifi_list[0].password;
-    
-    WATCH_DBG_LOG("[WiFi] Auto-reconnecting to: %s", ssid);
-    
-    // 尝试连接保存的WiFi
-    wifi_connect("wlan0", ssid, password);
-    
-    // 轮询等待连接建立（每500ms检查ESSID，最多5秒）
-    WATCH_DBG_LOG("[WiFi] Waiting for connection to establish...");
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sock >= 0) {
+    if (sock < 0) {
+        WATCH_DBG_LOG("[WiFi] socket() failed: %d", errno);
+        g_is_reconnecting = false;
+        return NULL;
+    }
+
+    /* ── 第一步：扫描可用 WiFi ─────────────────────── */
+    /* 收集扫描到的 SSID 列表（堆分配避免栈溢出） */
+    char (*scanned_ssids)[64] = malloc(32 * 64);
+    if (!scanned_ssids) {
+        WATCH_DBG_LOG("[WiFi] malloc failed for scan buffer");
+        close(sock);
+        g_is_reconnecting = false;
+        return NULL;
+    }
+    int scanned_count = 0;
+    
+    WATCH_DBG_LOG("[WiFi] Pre-scan: scanning for available networks...");
+    
+    int scan_ret = wapi_scan_init(sock, "wlan0", NULL);
+    if (scan_ret < 0) {
+        WATCH_DBG_LOG("[WiFi] Pre-scan init failed: %d, will try all saved WiFi", scan_ret);
+    } else {
+        /* 轮询等待扫描完成 */
+        struct wapi_list_s aps;
+        memset(&aps, 0, sizeof(aps));
+        int scan_retries = 0;
+        const int max_scan_retries = 10;  /* 10 * 500ms = 5s max */
+        do {
+            scan_ret = wapi_scan_coll(sock, "wlan0", &aps);
+            if (scan_ret == 0 || scan_ret != -EAGAIN) break;
+            usleep(500000);
+            scan_retries++;
+        } while (scan_retries < max_scan_retries);
+        
+        if (scan_ret == 0) {
+            struct wapi_scan_info_s *scan_info = aps.head.scan;
+            while (scan_info != NULL && scanned_count < 32) {
+                if (scan_info->has_essid && strlen(scan_info->essid) > 0) {
+                    strncpy(scanned_ssids[scanned_count], scan_info->essid, 63);
+                    scanned_ssids[scanned_count][63] = '\0';
+                    scanned_count++;
+                }
+                scan_info = scan_info->next;
+            }
+            wapi_scan_coll_free(&aps);
+            WATCH_DBG_LOG("[WiFi] Pre-scan found %d networks", scanned_count);
+        } else {
+            WATCH_DBG_LOG("[WiFi] Pre-scan collect failed: %d, will try all saved WiFi", scan_ret);
+        }
+    }
+    
+    /* ── 第二步：匹配扫描结果与已保存 WiFi ──────── */
+    /* 构建按扫描结果排序的连接优先队列：
+     * 先连接扫描结果中存在的已保存WiFi，再回退尝试其他已保存WiFi */
+    int connect_order[MAX_SAVED_WIFI];
+    int connect_count = 0;
+    bool used[MAX_SAVED_WIFI] = {false};
+    
+    /* 优先：扫描结果中匹配到的 */
+    for (int s = 0; s < scanned_count; s++) {
+        for (int i = 0; i < g_saved_wifi_count; i++) {
+            if (!used[i] && strcmp(scanned_ssids[s], g_saved_wifi_list[i].ssid) == 0) {
+                connect_order[connect_count++] = i;
+                used[i] = true;
+                WATCH_DBG_LOG("[WiFi] Matched saved WiFi [%d]: %s (found in scan)",
+                       i, g_saved_wifi_list[i].ssid);
+                break;
+            }
+        }
+    }
+    
+    /* 回退：扫描未覆盖的已保存 WiFi（可能扫描遗漏或 AP 隐藏 SSID） */
+    for (int i = 0; i < g_saved_wifi_count; i++) {
+        if (!used[i]) {
+            connect_order[connect_count++] = i;
+            used[i] = true;
+            WATCH_DBG_LOG("[WiFi] Saved WiFi [%d]: %s (not in scan, will try as fallback)",
+                   i, g_saved_wifi_list[i].ssid);
+        }
+    }
+    
+    if (connect_count == 0) {
+        WATCH_DBG_LOG("[WiFi] No WiFi to connect");
+        free(scanned_ssids);
+        close(sock);
+        g_is_reconnecting = false;
+        return NULL;
+    }
+    
+    /* ── 第三步：逐个尝试连接 ────────────────────── */
+    bool connected = false;
+    
+    for (int idx = 0; idx < connect_count && !connected; idx++) {
+        int i = connect_order[idx];
+        const char *ssid = g_saved_wifi_list[i].ssid;
+        const char *password = g_saved_wifi_list[i].password;
+        
+        WATCH_DBG_LOG("[WiFi] Trying [%d/%d]: %s", idx + 1, connect_count, ssid);
+        
+        wifi_connect("wlan0", ssid, password);
+        
+        /* 轮询等待连接建立（每500ms检查ESSID，最多10秒） */
         char current_essid[WAPI_ESSID_MAX_SIZE + 1];
         memset(current_essid, 0, sizeof(current_essid));
 
-        int retries = 10;  /* 10 * 500ms = 5s max */
+        int retries = 20;  /* 20 * 500ms = 10s max */
         while (retries > 0) {
             if (wapi_get_essid(sock, "wlan0", current_essid, NULL) == 0 &&
                 strlen(current_essid) > 0) {
                 break;
             }
-            usleep(500000);  /* 500ms */
+            usleep(500000);
             retries--;
         }
         
-        WATCH_DBG_LOG("[WiFi] Current ESSID: %s (expected: %s)", current_essid, ssid);
+        WATCH_DBG_LOG("[WiFi] Current ESSID: %s (expected: %s)",
+               strlen(current_essid) > 0 ? current_essid : "(none)", ssid);
         
         if (strlen(current_essid) > 0 &&
             strcmp(current_essid, ssid) == 0) {
-            // 连接成功
             strncpy(g_connected_ssid, ssid, sizeof(g_connected_ssid) - 1);
             g_connected_ssid[sizeof(g_connected_ssid) - 1] = '\0';
+            g_reconnect_retry = 0;  /* 连接成功，重置重试计数 */
             WATCH_DBG_LOG("[WiFi] Auto-reconnect success: %s", g_connected_ssid);
             home_control_reset_server();
+            connected = true;
         } else {
-            // 连接失败，再检查IP地址
+            /* ESSID不匹配，检查IP地址 */
             struct in_addr ip_addr;
             if (wapi_get_ip(sock, "wlan0", &ip_addr) == 0 && ip_addr.s_addr != 0) {
-                // 有IP地址也算成功
                 strncpy(g_connected_ssid, ssid, sizeof(g_connected_ssid) - 1);
                 g_connected_ssid[sizeof(g_connected_ssid) - 1] = '\0';
+                g_reconnect_retry = 0;  /* 连接成功，重置重试计数 */
                 WATCH_DBG_LOG("[WiFi] Auto-reconnect success (has IP): %s", g_connected_ssid);
                 home_control_reset_server();
+                connected = true;
             } else {
-                WATCH_DBG_LOG("[WiFi] Auto-reconnect failed");
+                WATCH_DBG_LOG("[WiFi] Auto-reconnect failed for: %s", ssid);
                 g_connected_ssid[0] = '\0';
             }
         }
-        close(sock);
     }
+    
+    free(scanned_ssids);
+    close(sock);
 
     /* WiFi连接已完成，先清除重连标志让 UI 定时器能正常退出 */
     g_is_reconnecting = false;
@@ -1003,13 +1102,18 @@ static void wifi_auto_reconnect_check(void)
     
     g_is_reconnecting = true;
     
-    // 在单独线程中执行重连
+    // 在单独线程中执行重连（增大栈：扫描+匹配逻辑需要较多空间）
     pthread_t tid;
-    if (pthread_create(&tid, NULL, wifi_reconnect_thread, NULL) != 0) {
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setstacksize(&attr, 8192);
+    if (pthread_create(&tid, &attr, wifi_reconnect_thread, NULL) != 0) {
         WATCH_DBG_LOG("[WiFi] Failed to create reconnect thread");
         g_is_reconnecting = false;
+        pthread_attr_destroy(&attr);
         return;
     }
+    pthread_attr_destroy(&attr);
     pthread_detach(tid);
 }
 
@@ -1615,8 +1719,22 @@ static void wifi_show_detail_page(lv_event_t *e)
 /* WiFi连接状态检查定时器回调 */
 static void wifi_status_check_timer_cb(lv_timer_t *timer)
 {
-    // 如果WiFi未启用或没有连接的WiFi，不检查
-    if (!g_wifi_enabled || strlen(g_connected_ssid) == 0) {
+    // WiFi未启用时不检查
+    if (!g_wifi_enabled) {
+        return;
+    }
+    
+    // WiFi已启用但未连接：触发扫描重连（开机初始连接失败后的重试机制）
+    if (strlen(g_connected_ssid) == 0) {
+        if (g_is_reconnecting) return;  // 正在重连中
+        if (g_reconnect_retry >= MAX_RECONNECT_RETRY) {
+            WATCH_DBG_LOG("[WiFi] Max reconnect retries (%d) reached", MAX_RECONNECT_RETRY);
+            return;
+        }
+        g_reconnect_retry++;
+        WATCH_DBG_LOG("[WiFi] Not connected, triggering scan-reconnect (%d/%d)",
+               g_reconnect_retry, MAX_RECONNECT_RETRY);
+        wifi_auto_reconnect_check();
         return;
     }
     
@@ -1638,6 +1756,7 @@ static void wifi_status_check_timer_cb(lv_timer_t *timer)
     if (ret == 0 && IFF_IS_RUNNING(if_flags)) {
         // 接口正在运行
         g_status_fail_count = 0;
+        g_reconnect_retry = 0;  /* 接口正常，重置重试计数 */
     } else {
         g_status_fail_count++;
         WATCH_DBG_LOG("[WiFi] Interface not running (%d)", g_status_fail_count);
