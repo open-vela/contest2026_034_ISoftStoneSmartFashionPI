@@ -111,20 +111,17 @@ int lv_watch_push_page(lv_obj_t *page);
 int lv_watch_pop_page(lv_obj_t *page);
 
 /**
- * @brief 设置指定表情（供 ai_agent set_face tool 调用）
+ * @brief 设置指定表情（供 ai_agent set_face tool / 端侧表情表调用）
  *
- *  切换到 face_id 对应的 GIF。duration_ms>0 时到期恢复 excited。
+ *  切换到 face_id 对应的 GIF。duration_ms>0 时到期恢复 excited
+ *  （仅显式传入短时表情时使用）；0=保持到下一次 set_face。
  *
  * @param face_id  表情ID（19个枚举值之一）
- * @param duration_ms 显示时长（毫秒），0=永久
+ * @param duration_ms 显示时长（毫秒），0=持久
  * @return 0 成功，-1 失败
  */
 int watch_expression_page_set_face(const char* face_id, int duration_ms);
 
-/**
- * @brief 开机后设置默认表情（excited）
- */
-void watch_expression_page_set_default(void);
 /****************************************************************************
  * 电池电量监控接口
  ****************************************************************************/
