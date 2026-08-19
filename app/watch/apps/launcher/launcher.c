@@ -279,6 +279,11 @@ static void goto_next_state(void)
               content_area);
           }
 
+        /* 启动电池电量周期监控：开机立即检测一次，之后每60秒检测，
+         * 电量低于20%时播报低电量语音（watch_battery_check_start 内部
+         * 有重复调用保护） */
+        watch_battery_check_start();
+
         /* 仅表情UI模式启动延迟唤醒定时器（手表UI不需要语音唤醒） */
         if (g_boot_ui_mode == UI_MODE_EXPRESSION)
           {
