@@ -36,6 +36,7 @@
 #include "../common/watch_pages.h"
 #include "../../resource/resource.h"
 #include "launcher.h"
+#include "../settings/settings_wifi.h"
 
 /* 调试打印 — 统一使用 syslog 输出到 SD 卡 */
 #define DIAL_LOG(fmt, ...) syslog(LOG_INFO, "[DIAL] " fmt, ##__VA_ARGS__)
@@ -235,6 +236,15 @@ static void update_default_dial(void)
     uint8_t battery_percent = get_battery_percentage();
     int battery_index = get_battery_icon_index(battery_percent);
     lv_img_set_src(bat_icon_img, battery_images[battery_index]);
+
+    /* WiFi图标：已连接时显示，未连接时隐藏 */
+    if (wifi_icon_img) {
+        if (settings_wifi_is_connected()) {
+            lv_obj_clear_flag(wifi_icon_img, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(wifi_icon_img, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
 }
 
 /* 更新月亮表盘 */
@@ -264,6 +274,15 @@ static void update_moon_dial(void)
     uint8_t battery_percent = get_battery_percentage();
     int battery_index = get_battery_icon_index(battery_percent);
     lv_img_set_src(moon_bat_icon, battery_images[battery_index]);
+
+    /* WiFi图标：已连接时显示，未连接时隐藏 */
+    if (moon_wifi_icon) {
+        if (settings_wifi_is_connected()) {
+            lv_obj_clear_flag(moon_wifi_icon, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(moon_wifi_icon, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
 }
 
 /* 更新指针表盘 */
@@ -327,14 +346,17 @@ static void create_default_dial(lv_obj_t *parent)
     lv_obj_align(bat_icon_img, LV_ALIGN_TOP_RIGHT, -34, 20);
 
     /* 蓝牙Y向下20px，根据电量64*64，基于电量向左5px */
+    /* 蓝牙功能未启用，底层能力已存在，界面不显示*/
+    /*
     bt_icon_img = lv_img_create(parent);
     lv_img_set_src(bt_icon_img, vw_resource_get_img("icon_dial_bt"));
     lv_obj_align(bt_icon_img, LV_ALIGN_TOP_RIGHT, -72, 20);
+    */
 
-    /* WIFIY向下20px，根据电量64*64，基于电量向左5px */
+    /* WiFi图标：自动对齐到电量图标左侧，Y轴与电量对齐 */
     wifi_icon_img = lv_img_create(parent);
     lv_img_set_src(wifi_icon_img, vw_resource_get_img("icon_dial_wifi"));
-    lv_obj_align(wifi_icon_img, LV_ALIGN_TOP_RIGHT, -105, 20);
+    lv_obj_align_to(wifi_icon_img, bat_icon_img, LV_ALIGN_OUT_LEFT_MID, -5, 0);
 
     step_icon_img = lv_img_create(parent);
     lv_img_set_src(step_icon_img, vw_resource_get_img("icon_dial_steps"));
@@ -389,15 +411,17 @@ static void create_moon_dial(lv_obj_t *parent)
     lv_img_set_src(moon_bat_icon, battery_images[init_index]);
     lv_obj_align(moon_bat_icon, LV_ALIGN_TOP_RIGHT, -34, 20);
 
-    /* 蓝牙Y向下20px，根据电量64*64，基于电量向左5px */
+    /* 藝牙功能未启用，底层能力已存在，界面不显示*/
+    /*
     moon_bt_icon = lv_img_create(parent);
     lv_img_set_src(moon_bt_icon, vw_resource_get_img("icon_dial_bt"));
     lv_obj_align(moon_bt_icon, LV_ALIGN_TOP_RIGHT, -72, 20);
-
-    /* WIFIY向下20px，根据电量64*64，基于电量向左5px */
+    */
+    
+    /* WiFi图标：自动对齐到电量图标左侧，Y轴与电量对齐 */
     moon_wifi_icon = lv_img_create(parent);
     lv_img_set_src(moon_wifi_icon, vw_resource_get_img("icon_dial_wifi"));
-    lv_obj_align(moon_wifi_icon, LV_ALIGN_TOP_RIGHT, -105, 20);
+    lv_obj_align_to(moon_wifi_icon, moon_bat_icon, LV_ALIGN_OUT_LEFT_MID, -5, 0);
 
     /* 小时数字十位Y为74px,从右向左158px */
     moon_hour1_img = lv_img_create(parent);
