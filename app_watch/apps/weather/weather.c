@@ -49,6 +49,7 @@ static int g_weather_fetching = 0;
 static time_t g_last_fetch_time = 0;
 static time_t g_enter_time = 0;
 static int g_data_shown = 0;
+static int g_location_updated = 0;  /* IP定位是否已成功执行过 */
 #define WEATHER_FETCH_INTERVAL_SEC (30 * 60)
 #define WEATHER_TIMEOUT_SEC 30
 
@@ -856,6 +857,18 @@ static void *weather_fetch_thread(void *arg)
     WEATHER_LOG("[Weather] Fetch thread started\n");
     g_weather_fetching = 1;
 
+    /* 首次获取天气时，通过IP定位更新城市（仅执行一次） */
+    if (!g_location_updated && settings_wifi_is_connected()) {
+        WEATHER_LOG("[Weather] Attempting IP-based location update...\n");
+        int loc_ret = weather_update_location();
+        if (loc_ret == 0) {
+            g_location_updated = 1;
+            WEATHER_LOG("[Weather] IP location success: %s\n", g_weather_city);
+        } else {
+            WEATHER_LOG("[Weather] IP location failed, using default: 武汉\n");
+        }
+    }
+
     int ret = weather_get_data(weather_data_get());
     if (ret == 0) {
         WEATHER_LOG("[Weather] Data fetched: temp=%d, weather=%s, icon=%s, hourly=%d, daily=%d\n",
@@ -1196,7 +1209,7 @@ void weather_app_click_callback(lv_event_t *e)
     weather_app_create();
 }
 
-void weather_update_location(void)
+int weather_update_location(void)
 {
     WEATHER_LOG("[Weather] Updating location via IP...\n");
 
@@ -1206,7 +1219,7 @@ void weather_update_location(void)
     resp_len = http_get("http://ip-api.com/json", &response);
     if (resp_len <= 0) {
         WEATHER_LOG("[Weather] Failed to get IP location\n");
-        return;
+        return -1;
     }
 
     resp_len = maybe_gunzip(&response, resp_len);
@@ -1216,12 +1229,12 @@ void weather_update_location(void)
     char region_en[32] = {0};
 
     cJSON *root = cJSON_Parse(response);
-    // 静态缓冲区，无需free
+    /* 静态缓冲区，无需free */
     response = NULL;
 
     if (!root) {
         WEATHER_LOG("[Weather] Failed to parse IP location JSON\n");
-        return;
+        return -1;
     }
 
     cJSON *status = cJSON_GetObjectItem(root, "status");
@@ -1240,7 +1253,7 @@ void weather_update_location(void)
 
     if (city_en[0] == '\0') {
         WEATHER_LOG("[Weather] Failed to get city from IP location\n");
-        return;
+        return -1;
     }
 
     char url[256];
@@ -1256,11 +1269,12 @@ void weather_update_location(void)
     resp_len = http_get(url, &response);
     if (resp_len <= 0) {
         WEATHER_LOG("[Weather] GeoAPI failed, keeping default location\n");
-        return;
+        return -1;
     }
 
     resp_len = maybe_gunzip(&response, resp_len);
 
+    int updated = 0;
     root = cJSON_Parse(response);
     if (root) {
         cJSON *code_obj = cJSON_GetObjectItem(root, "code");
@@ -1277,6 +1291,7 @@ void weather_update_location(void)
                     if (id_obj && cJSON_IsString(id_obj)) {
                         strncpy(g_weather_location_id, id_obj->valuestring, 31);
                         g_weather_location_id[31] = '\0';
+                        updated = 1;
                     }
                     if (name_obj && cJSON_IsString(name_obj)) {
                         strncpy(g_weather_city, name_obj->valuestring, 63);
@@ -1295,6 +1310,10 @@ void weather_update_location(void)
         WEATHER_LOG("[Weather] GeoAPI JSON parse failed\n");
     }
 
-    // 静态缓冲区，无需free
-    g_location_initialized = 0;
+    /* 静态缓冲区，无需free */
+    if (updated) {
+        g_location_initialized = 0;
+        return 0;
+    }
+    return -1;
 }

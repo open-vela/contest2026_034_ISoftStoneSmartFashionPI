@@ -12,9 +12,45 @@
 #include <../../../../apps/graphics/lvgl/lvgl/src/drivers/nuttx/lv_nuttx_touchscreen.h>
 #include <nuttx/lcd/co5300.h>
 #include <syslog.h>
+#include "../common/watch_audio_player.h"
 
 /* 调试打印 — 统一使用 syslog 输出到 SD 卡 */
 #define ALARM_LOG(fmt, ...) syslog(LOG_INFO, "[ALARM] " fmt, ##__VA_ARGS__)
+
+/* 闹钟铃声循环播放定时器（每 3 秒重新播放一次） */
+#if defined(CONFIG_ESP32S3_I2S) && defined(CONFIG_AUDIO_ES8311)
+static lv_timer_t *alarm_sound_timer = NULL;
+#define ALARM_SOUND_INTERVAL_MS  3000
+#define ALARM_SOUND_VOLUME       800
+
+static void alarm_sound_timer_cb(lv_timer_t *timer)
+{
+    (void)timer;
+    esp32s3_watch_audio_play_repeat(WATCH_AUDIO_PLAYER_ALARM_FILE,
+                                     ALARM_SOUND_VOLUME);
+}
+
+static void alarm_sound_start(void)
+{
+    /* 立即播放一次 */
+    esp32s3_watch_audio_play_repeat(WATCH_AUDIO_PLAYER_ALARM_FILE,
+                                     ALARM_SOUND_VOLUME);
+    /* 创建循环定时器 */
+    if (alarm_sound_timer == NULL) {
+        alarm_sound_timer = lv_timer_create(alarm_sound_timer_cb,
+                                             ALARM_SOUND_INTERVAL_MS, NULL);
+    }
+}
+
+static void alarm_sound_stop(void)
+{
+    if (alarm_sound_timer != NULL) {
+        lv_timer_del(alarm_sound_timer);
+        alarm_sound_timer = NULL;
+    }
+    esp32s3_watch_audio_stop();
+}
+#endif
 
 
 
@@ -77,7 +113,10 @@ static void alarm_ring_create(int index);
 static void snooze_timer_cb(lv_timer_t *timer);
 static void start_snooze_alarm(int alarm_index);
 static void stop_snooze_alarm(void);
-
+#if defined(CONFIG_ESP32S3_I2S) && defined(CONFIG_AUDIO_ES8311)
+static void alarm_sound_start(void);
+static void alarm_sound_stop(void);
+#endif
 /**
  * 创建闹钟列表页面
  */
@@ -566,15 +605,17 @@ static void confirm_btn_event_cb(lv_event_t *e)
     if (alarm_edit_base != NULL) {
         // 将页面从页面栈弹出
         vw_watch_pop_page(alarm_edit_base);
-        lv_obj_del(alarm_edit_base);
+        lv_obj_del_async(alarm_edit_base);
         alarm_edit_base = NULL;
     }
 
     // 重新创建整个列表页面
     if (alarm_list_base != NULL) {
         vw_watch_pop_page(alarm_list_base);
-        lv_obj_del(alarm_list_base);
+        lv_obj_del_async(alarm_list_base);
         alarm_list_base = NULL;
+        alarm_list = NULL;
+        no_alarm_label = NULL;
     }
     alarm_list_create();
 }
@@ -602,15 +643,17 @@ static void cancel_btn_event_cb(lv_event_t *e)
     if (alarm_edit_base != NULL) {
         // 将页面从页面栈弹出
         vw_watch_pop_page(alarm_edit_base);
-        lv_obj_del(alarm_edit_base);
+        lv_obj_del_async(alarm_edit_base);
         alarm_edit_base = NULL;
     }
 
     // 重新创建整个列表页面
     if (alarm_list_base != NULL) {
         vw_watch_pop_page(alarm_list_base);
-        lv_obj_del(alarm_list_base);
+        lv_obj_del_async(alarm_list_base);
         alarm_list_base = NULL;
+        alarm_list = NULL;
+        no_alarm_label = NULL;
     }
     alarm_list_create();
 }
@@ -643,8 +686,10 @@ static void slide_gesture_list_handler(lv_event_t *e)
                     if(alarm_list_base != NULL) {
                         // 将页面从页面栈弹出
                         vw_watch_pop_page(alarm_list_base);
-                        lv_obj_del(alarm_list_base);
+                        lv_obj_del_async(alarm_list_base);
                         alarm_list_base = NULL;
+                        alarm_list = NULL;
+                        no_alarm_label = NULL;
                     }
                 }
             }
@@ -684,7 +729,7 @@ static void slide_gesture_edit_handler(lv_event_t *e)
                     if(alarm_edit_base != NULL) {
                         // 将页面从页面栈弹出
                         vw_watch_pop_page(alarm_edit_base);
-                        lv_obj_del(alarm_edit_base);
+                        lv_obj_del_async(alarm_edit_base);
                         alarm_edit_base = NULL;
                     }
                 }
@@ -715,6 +760,11 @@ static void alarm_ring_create(int index)
     }
     setNull_display_timeout_timer();
     ft3168_display_timeout_setup();
+
+    /* 启动闹钟铃声循环播放 */
+#if defined(CONFIG_ESP32S3_I2S) && defined(CONFIG_AUDIO_ES8311)
+    alarm_sound_start();
+#endif
 
     // 创建闹钟响铃页面
     alarm_ring_base = lv_obj_create(lv_scr_act());
@@ -947,12 +997,15 @@ static void snooze_btn_event_cb(lv_event_t *e)
     }
     is_processing = true;
     ALARM_LOG("Alarm snooze 5mins button click.");
+#if defined(CONFIG_ESP32S3_I2S) && defined(CONFIG_AUDIO_ES8311)
+    alarm_sound_stop();
+#endif
     int ring_index = current_ring_index;
     // 退出页面
     if (alarm_ring_base != NULL) {
         // 将页面从页面栈弹出
         vw_watch_pop_page(alarm_ring_base);
-        lv_obj_del(alarm_ring_base);
+        lv_obj_del_async(alarm_ring_base);
         alarm_ring_base = NULL;
     }
 
@@ -982,6 +1035,9 @@ static void close_btn_event_cb(lv_event_t *e)
     }
     is_processing = true;
     ALARM_LOG("Alarm closed button click.");
+#if defined(CONFIG_ESP32S3_I2S) && defined(CONFIG_AUDIO_ES8311)
+    alarm_sound_stop();
+#endif
 
     // 关闭闹钟
     if (current_ring_index >= 0 && current_ring_index < alarm_count) {
@@ -997,8 +1053,8 @@ static void close_btn_event_cb(lv_event_t *e)
             alarms[current_ring_index].enabled = 0;
             // 保存到文件
             alarm_save_to_file();
-            // 更新列表
-            if (alarm_list != NULL) {
+            // 更新列表（仅当列表页面仍然存在时）
+            if (alarm_list != NULL && alarm_list_base != NULL) {
                 update_alarm_list(alarm_list);
             }
         }
@@ -1021,7 +1077,7 @@ static void close_btn_event_cb(lv_event_t *e)
     if (alarm_ring_base != NULL) {
         // 将页面从页面栈弹出
         vw_watch_pop_page(alarm_ring_base);
-        lv_obj_del(alarm_ring_base);
+        lv_obj_del_async(alarm_ring_base);
         alarm_ring_base = NULL;
     }
     is_processing = false;
@@ -1072,12 +1128,15 @@ static void slide_gesture_ring_handler(lv_event_t *e)
                             alarms[current_ring_index].enabled = 0;
                             // 保存到文件
                             alarm_save_to_file();
-                            // 更新列表
-                            if (alarm_list != NULL) {
+                            // 更新列表（仅当列表页面仍然存在时）
+                            if (alarm_list != NULL && alarm_list_base != NULL) {
                                 update_alarm_list(alarm_list);
                             }
                         }
                         ALARM_LOG("Alarm closed via swipe");
+#if defined(CONFIG_ESP32S3_I2S) && defined(CONFIG_AUDIO_ES8311)
+                        alarm_sound_stop();
+#endif
 
                         // 只停止当前闹钟的延时（不影响其他闹钟的延时）
                         for (int i = 0; i < MAX_SNOOZE_ALARMS; i++) {
@@ -1095,7 +1154,7 @@ static void slide_gesture_ring_handler(lv_event_t *e)
                     if(alarm_ring_base != NULL) {
                         // 将页面从页面栈弹出
                         vw_watch_pop_page(alarm_ring_base);
-                        lv_obj_del(alarm_ring_base);
+                        lv_obj_del_async(alarm_ring_base);
                         alarm_ring_base = NULL;
                     }
                     is_processing = false;
