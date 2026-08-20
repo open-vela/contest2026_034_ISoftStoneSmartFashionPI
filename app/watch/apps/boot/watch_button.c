@@ -235,7 +235,6 @@ static void handle_boot_short_press(void)
 
   g_mic_muted = !g_mic_muted;
   if (g_mic_muted) {
-    es7210_set_mic_mute(true);   /* 硬件禁麦：ADC 输出静音 */
     voice_channel_enable_wake_gate();  /* 立即上锁，禁止噪声触发LLM */
     /* Defer I2C mute to voice_channel thread — calling es7210_set_mic_mute
      * from LVGL timer races with audio driver I2C access and can deadlock. */
