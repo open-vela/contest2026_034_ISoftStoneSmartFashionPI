@@ -14,7 +14,7 @@
 #include <lvgl/lvgl.h>
 
 #define WATCH_AUDIO_PLAYER_TEST_FILE "/mnt/sd/CAS.WAV"
-#define WATCH_AUDIO_PLAYER_ALARM_FILE "/mnt/sd/ALARM.WAV"
+#define WATCH_AUDIO_PLAYER_ALARM_FILE "/mnt/sd/AUDIO/alarm_wake.wav"
 
 
 #if defined(CONFIG_ESP32S3_I2S) && defined(CONFIG_AUDIO_ES8311)

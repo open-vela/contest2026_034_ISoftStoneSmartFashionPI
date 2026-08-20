@@ -15,8 +15,8 @@
 #define QWEATHER_API_KEY "7a82eeda6aa64571addb4c9a49b99747"
 #define QWEATHER_BASE_URL "https://mc3wt2fka2.re.qweatherapi.com/v7"
 #define QWEATHER_GEO_URL "https://mc3wt2fka2.re.qweatherapi.com/geo/v2/city/lookup"
-#define QWEATHER_DEFAULT_LOCATION "101190101"
-#define QWEATHER_DEFAULT_CITY "南京"
+#define QWEATHER_DEFAULT_LOCATION "101200101"  /* 武汉 */
+#define QWEATHER_DEFAULT_CITY "武汉"
 
 /* 动态定位（WiFi连接后通过IP定位更新）— 现在在 weather.c 中堆分配 */
 /* extern char g_weather_location_id[32]; -- removed */
@@ -61,6 +61,6 @@ typedef struct {
 void weather_app_click_callback(lv_event_t *e);
 int weather_get_location(LocationInfo *info);
 int weather_get_data(WeatherData *data);
-void weather_update_location(void);
+int weather_update_location(void);
 
 #endif /* __WEATHER_H */
