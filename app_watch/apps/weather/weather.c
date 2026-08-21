@@ -49,12 +49,14 @@ static int g_weather_fetching = 0;
 static time_t g_last_fetch_time = 0;
 static time_t g_enter_time = 0;
 static int g_data_shown = 0;
+static int g_refresh_complete = 0;  /* 后台刷新完成标志：通知定时器更新已显示的缓存数据 */
 static int g_location_updated = 0;  /* IP定位是否已成功执行过 */
 #define WEATHER_FETCH_INTERVAL_SEC (30 * 60)
-#define WEATHER_TIMEOUT_SEC 30
+#define WEATHER_TIMEOUT_SEC 60
 
 static void slide_gesture_handler(lv_event_t *e);
 static void start_weather_fetch(void);
+static void weather_ui_populate(void);
 
 /* 和风天气 icon code -> 本地图标名 映射表 */
 typedef struct {
@@ -399,6 +401,14 @@ static ssize_t http_get(const char *url, char **response)
     ctx.protocol_version = WEBCLIENT_PROTOCOL_VERSION_HTTP_1_1;
     ctx.tls_ops = &weather_webclient_tls_ops;
 
+    /* 新版 QWeather API 要求通过 HTTP Header 传递 API Key */
+    static char qw_api_key_header[64];
+    snprintf(qw_api_key_header, sizeof(qw_api_key_header),
+             "X-QW-Api-Key: %s", QWEATHER_API_KEY);
+    const char *qw_headers[] = { qw_api_key_header };
+    ctx.headers = qw_headers;
+    ctx.nheaders = 1;
+
     WEATHER_LOG("[WeatherNet] Starting webclient_perform...\n");
     int ret = webclient_perform(&ctx);
     WEATHER_LOG("[WeatherNet] webclient_perform completed, ret=%d\n", ret);
@@ -417,8 +427,11 @@ static ssize_t http_get(const char *url, char **response)
     if (ctx.http_status >= 200 && ctx.http_status < 300) {
         network_status_set(NETWORK_STATUS_CONNECTED, 0);
     } else {
-        WEATHER_LOG("[WeatherNet] HTTP error status: %u\n", ctx.http_status);
+        WEATHER_LOG("[WeatherNet] HTTP error status: %u, aborting\n", ctx.http_status);
         network_status_set(NETWORK_STATUS_DISCONNECTED, ctx.http_status);
+        *response = NULL;
+        WEATHER_LOG("[WeatherNet] ===== HTTP GET END (HTTP ERROR) =====\n");
+        return -1;
     }
 
     *response = http_resp_buf_get_data();
@@ -493,8 +506,8 @@ int weather_get_data(WeatherData *data)
     char *response = NULL;
     ssize_t resp_len;
     
-    sprintf(url, "%s/weather/now?location=%s&key=%s", 
-            QWEATHER_BASE_URL, g_weather_location_id, QWEATHER_API_KEY);
+    sprintf(url, "%s/weather/now?location=%s", 
+            QWEATHER_BASE_URL, g_weather_location_id);
     
     resp_len = http_get(url, &response);
     if (resp_len <= 0) {
@@ -530,6 +543,9 @@ int weather_get_data(WeatherData *data)
                     strncpy(data->icon, "nodata", sizeof(data->icon) - 1);
                 }
             }
+        } else {
+            WEATHER_LOG("[Weather] API error (now): code=%s\n",
+                   code_obj ? code_obj->valuestring : "(null)");
         }
 
         cJSON_Delete(root);
@@ -542,8 +558,8 @@ int weather_get_data(WeatherData *data)
     usleep(100000);  // 100ms
     
     // 2. 获取逐小时天气预报
-    sprintf(url, "%s/weather/24h?location=%s&key=%s", 
-            QWEATHER_BASE_URL, g_weather_location_id, QWEATHER_API_KEY);
+    sprintf(url, "%s/weather/24h?location=%s", 
+            QWEATHER_BASE_URL, g_weather_location_id);
     
     resp_len = http_get(url, &response);
     if (resp_len <= 0) {
@@ -599,6 +615,9 @@ int weather_get_data(WeatherData *data)
                     }
                 }
             }
+        } else {
+            WEATHER_LOG("[Weather] API error (24h): code=%s\n",
+                   code_obj ? code_obj->valuestring : "(null)");
         }
         
         cJSON_Delete(root);
@@ -611,8 +630,8 @@ int weather_get_data(WeatherData *data)
     usleep(100000);  // 100ms
     
     // 3. 获取7天天气预报
-    sprintf(url, "%s/weather/7d?location=%s&key=%s", 
-            QWEATHER_BASE_URL, g_weather_location_id, QWEATHER_API_KEY);
+    sprintf(url, "%s/weather/7d?location=%s", 
+            QWEATHER_BASE_URL, g_weather_location_id);
     
     resp_len = http_get(url, &response);
     if (resp_len <= 0) {
@@ -686,12 +705,22 @@ int weather_get_data(WeatherData *data)
                     }
                 }
             }
+        } else {
+            WEATHER_LOG("[Weather] API error (7d): code=%s\n",
+                   code_obj ? code_obj->valuestring : "(null)");
         }
         
         cJSON_Delete(root);
     }
     
     // 静态缓冲区，无需free
+    
+    /* 检查是否真正获取到数据，避免 API 错误时返回假“成功” */
+    if (data->weather[0] == '\0' && data->hourly_count == 0 &&
+        data->daily_count == 0) {
+        WEATHER_LOG("[Weather] No valid data extracted from API\n");
+        return -1;
+    }
     
     WEATHER_LOG("[Weather] Weather data retrieved successfully\n");
     return 0;
@@ -725,57 +754,9 @@ static void mode_switch_callback(lv_event_t *e)
     }
 }
 
-/* 检查天气数据是否就绪并刷新UI */
-static void weather_ui_refresh_timer_cb(lv_timer_t *timer)
+/* 将天气数据填充到 UI 控件（首次显示与后台刷新共用） */
+static void weather_ui_populate(void)
 {
-    time_t now = time(NULL);
-
-    // 检查 WiFi 连接状态
-    bool wifi_connected = settings_wifi_is_connected();
-    
-    if (!g_weather_fetching && !g_data_shown) {
-        if (!wifi_connected) {
-            if (loading_label) {
-                lv_label_set_text(loading_label, "未连接WiFi");
-                lv_obj_clear_flag(loading_label, LV_OBJ_FLAG_HIDDEN);
-            }
-            return;
-        }
-        
-        if (g_last_fetch_time == 0 || (now - g_last_fetch_time) >= WEATHER_FETCH_INTERVAL_SEC) {
-            start_weather_fetch();
-        }
-    }
-
-    if (g_data_shown) return;
-
-    if (g_weather_fetching) {
-        if ((now - g_enter_time) >= WEATHER_TIMEOUT_SEC) {
-            g_weather_fetching = 0;
-            if (loading_label) {
-                lv_label_set_text(loading_label, "无数据");
-                lv_obj_clear_flag(loading_label, LV_OBJ_FLAG_HIDDEN);
-            }
-            return;
-        }
-        if (loading_label) {
-            lv_label_set_text(loading_label, "加载中..........");
-            lv_obj_clear_flag(loading_label, LV_OBJ_FLAG_HIDDEN);
-        }
-        return;
-    }
-
-    if (WD.hourly_count == 0 && WD.daily_count == 0 &&
-        WD.temp == 0 && WD.weather[0] == '\0') {
-        if (loading_label) {
-            lv_label_set_text(loading_label, "无数据");
-            lv_obj_clear_flag(loading_label, LV_OBJ_FLAG_HIDDEN);
-        }
-        return;
-    }
-
-    g_data_shown = 1;
-
     if (loading_label) lv_obj_add_flag(loading_label, LV_OBJ_FLAG_HIDDEN);
     if (weather_icon) lv_obj_clear_flag(weather_icon, LV_OBJ_FLAG_HIDDEN);
     if (temp_label) lv_obj_clear_flag(temp_label, LV_OBJ_FLAG_HIDDEN);
@@ -851,6 +832,78 @@ static void weather_ui_refresh_timer_cb(lv_timer_t *timer)
            WD.hourly_count, WD.daily_count);
 }
 
+/* 检查天气数据是否就绪并刷新UI */
+static void weather_ui_refresh_timer_cb(lv_timer_t *timer)
+{
+    time_t now = time(NULL);
+
+    /* 后台刷新完成：若已显示缓存数据，则用新数据更新 UI */
+    if (g_refresh_complete) {
+        g_refresh_complete = 0;
+        if (g_data_shown) {
+            weather_ui_populate();
+            WEATHER_LOG("[Weather] UI updated with refreshed data\n");
+        }
+        return;
+    }
+
+    /* 已有缓存数据显示中：检查是否需要后台刷新 */
+    if (g_data_shown) {
+        if (!g_weather_fetching &&
+            (g_last_fetch_time == 0 ||
+             (now - g_last_fetch_time) >= WEATHER_FETCH_INTERVAL_SEC)) {
+            start_weather_fetch();
+        }
+        return;
+    }
+
+    /* 首次加载逻辑 */
+    bool wifi_connected = settings_wifi_is_connected();
+
+    if (!g_weather_fetching) {
+        if (!wifi_connected) {
+            if (loading_label) {
+                lv_label_set_text(loading_label, "未连接WiFi");
+                lv_obj_clear_flag(loading_label, LV_OBJ_FLAG_HIDDEN);
+            }
+            return;
+        }
+
+        if (g_last_fetch_time == 0 || (now - g_last_fetch_time) >= WEATHER_FETCH_INTERVAL_SEC) {
+            start_weather_fetch();
+        }
+    }
+
+    if (g_weather_fetching) {
+        if ((now - g_enter_time) >= WEATHER_TIMEOUT_SEC) {
+            g_weather_fetching = 0;
+            if (loading_label) {
+                lv_label_set_text(loading_label, "无数据");
+                lv_obj_clear_flag(loading_label, LV_OBJ_FLAG_HIDDEN);
+            }
+            return;
+        }
+        if (loading_label) {
+            lv_label_set_text(loading_label, "加载中..........");
+            lv_obj_clear_flag(loading_label, LV_OBJ_FLAG_HIDDEN);
+        }
+        return;
+    }
+
+    /* 数据就绪：首次展示 */
+    if (WD.hourly_count == 0 && WD.daily_count == 0 &&
+        WD.temp == 0 && WD.weather[0] == '\0') {
+        if (loading_label) {
+            lv_label_set_text(loading_label, "无数据");
+            lv_obj_clear_flag(loading_label, LV_OBJ_FLAG_HIDDEN);
+        }
+        return;
+    }
+
+    g_data_shown = 1;
+    weather_ui_populate();
+}
+
 /* 异步获取天气数据的线程 */
 static void *weather_fetch_thread(void *arg)
 {
@@ -884,9 +937,17 @@ static void *weather_fetch_thread(void *arg)
                    WD.daily[i].temp_min, WD.daily[i].icon);
         }
         g_last_fetch_time = time(NULL);
+        /* 若缓存数据已显示，通知定时器用新数据刷新 UI */
+        if (g_data_shown) {
+            g_refresh_complete = 1;
+        }
     } else {
         WEATHER_LOG("[Weather] Failed to fetch weather data\n");
-        memset(weather_data_get(), 0, sizeof(WeatherData));
+        /* 首次加载失败：清空数据让 UI 显示“无数据”；
+         * 后台刷新失败：保留旧缓存不清除 */
+        if (!g_data_shown) {
+            memset(weather_data_get(), 0, sizeof(WeatherData));
+        }
     }
 
     g_weather_fetching = 0;
@@ -896,6 +957,12 @@ static void *weather_fetch_thread(void *arg)
 /* 启动异步天气数据获取 */
 static void start_weather_fetch(void)
 {
+    /* 每次启动 fetch 时重置计时基准，避免超时后重复启动的线程立即超时。
+     * 同步设置 g_weather_fetching 防止定时器在线程启动前重复创建线程。
+     * 不重置 g_data_shown：若有缓存数据已显示，保持显示状态，后台刷新完成后更新 */
+    g_enter_time = time(NULL);
+    g_weather_fetching = 1;
+
     pthread_attr_t attr;
     pthread_attr_init(&attr);
     
@@ -933,8 +1000,10 @@ static void weather_app_create(void)
         strncpy(g_weather_city, QWEATHER_DEFAULT_CITY, 63);
     }
     
+    /* 检查是否有上次的缓存数据（stale-while-revalidate 策略） */
+    int has_cached = (g_last_fetch_time > 0 && WD.weather[0] != '\0');
+    g_data_shown = has_cached ? 1 : 0;
     g_enter_time = time(NULL);
-    g_data_shown = 0;
     
     // 创建屏幕
     weather_main_base = lv_obj_create(lv_scr_act());
@@ -944,9 +1013,10 @@ static void weather_app_create(void)
     lv_obj_set_style_border_width(weather_main_base, 0, LV_STATE_DEFAULT);
     lv_obj_align(weather_main_base, LV_ALIGN_CENTER, 0, 0);
     
-    // 获取真实天气数据（异步）
-    memset(weather_data_get(), 0, sizeof(WeatherData));
-    start_weather_fetch();
+    // 首次进入时清空数据；后续进入保留缓存数据用于立即显示
+    if (!has_cached) {
+        memset(weather_data_get(), 0, sizeof(WeatherData));
+    }
 
     /* 堆分配样式 */
     if (style_btn_normal == NULL) {
@@ -1147,6 +1217,16 @@ static void weather_app_create(void)
     lv_obj_set_style_text_font(loading_label, vw_resource_get_font(WATCH_REGULAR_FONT "_32"), 0);
     lv_obj_center(loading_label);
     
+    /* 若有缓存数据，立即显示旧数据；随后后台异步刷新 */
+    if (has_cached) {
+        weather_ui_populate();
+        WEATHER_LOG("[Weather] Showing cached data (last fetch: %lu)\n",
+               (unsigned long)g_last_fetch_time);
+    }
+    
+    // 启动后台天气数据获取（异步）
+    start_weather_fetch();
+    
     // 设置UI刷新定时器（每2秒检查数据就绪，每30分钟重新获取）
     update_timer = lv_timer_create(weather_ui_refresh_timer_cb, 2000, NULL);
 
@@ -1258,11 +1338,11 @@ int weather_update_location(void)
 
     char url[256];
     if (region_en[0])
-        snprintf(url, sizeof(url), "%s?location=%s&adm=%s&key=%s",
-                 QWEATHER_GEO_URL, city_en, region_en, QWEATHER_API_KEY);
+        snprintf(url, sizeof(url), "%s?location=%s&adm=%s",
+                 QWEATHER_GEO_URL, city_en, region_en);
     else
-        snprintf(url, sizeof(url), "%s?location=%s&key=%s",
-                 QWEATHER_GEO_URL, city_en, QWEATHER_API_KEY);
+        snprintf(url, sizeof(url), "%s?location=%s",
+                 QWEATHER_GEO_URL, city_en);
 
     WEATHER_LOG("[Weather] GeoAPI URL: %s\n", url);
 
