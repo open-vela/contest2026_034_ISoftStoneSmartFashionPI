@@ -26,15 +26,25 @@ static lv_timer_t *alarm_sound_timer = NULL;
 static void alarm_sound_timer_cb(lv_timer_t *timer)
 {
     (void)timer;
-    esp32s3_watch_audio_play_repeat(WATCH_AUDIO_PLAYER_ALARM_FILE,
-                                     ALARM_SOUND_VOLUME);
+    int ret = esp32s3_watch_audio_play_repeat(WATCH_AUDIO_PLAYER_ALARM_FILE,
+                                               ALARM_SOUND_VOLUME);
+    if (ret < 0)
+    {
+        ALARM_LOG("alarm_sound_timer_cb: play_repeat failed: %d", ret);
+    }
 }
 
 static void alarm_sound_start(void)
 {
     /* 立即播放一次 */
-    esp32s3_watch_audio_play_repeat(WATCH_AUDIO_PLAYER_ALARM_FILE,
-                                     ALARM_SOUND_VOLUME);
+    int ret = esp32s3_watch_audio_play_repeat(WATCH_AUDIO_PLAYER_ALARM_FILE,
+                                               ALARM_SOUND_VOLUME);
+    if (ret < 0)
+    {
+        ALARM_LOG("alarm_sound_start: play_repeat failed: %d (file: %s)",
+                  ret, WATCH_AUDIO_PLAYER_ALARM_FILE);
+    }
+
     /* 创建循环定时器 */
     if (alarm_sound_timer == NULL) {
         alarm_sound_timer = lv_timer_create(alarm_sound_timer_cb,

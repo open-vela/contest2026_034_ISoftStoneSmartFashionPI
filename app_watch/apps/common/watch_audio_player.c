@@ -24,6 +24,19 @@ static int watch_audio_ensure_player(void)
         {
             return -ENOMEM;
         }
+
+        /* Explicitly set the preferred audio device.  All other working
+         * audio code in this project (tong_ai_ws, volc_e2e_voice, etc.)
+         * calls nxplayer_setdevice after nxplayer_create.  Without this,
+         * the nxplayer falls back to an unreliable device auto-search.
+         */
+        int devret = nxplayer_setdevice(g_watch_player, "/dev/audio/pcm0");
+        if (devret < 0)
+        {
+            nxplayer_release(g_watch_player);
+            g_watch_player = NULL;
+            return devret;
+        }
     }
 
     return OK;
