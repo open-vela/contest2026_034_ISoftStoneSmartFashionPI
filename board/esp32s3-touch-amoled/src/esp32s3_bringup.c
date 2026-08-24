@@ -40,6 +40,7 @@
 #include <stdlib.h>
 
 #include <errno.h>
+#include <string.h>
 #include <time.h>
 #include <nuttx/fs/fs.h>
 
@@ -186,12 +187,23 @@ static int sdmmc_mount_task(int argc, FAR char *argv[])
   ret = board_sdmmc_initialize();
   if (ret < 0)
     {
-      syslog(LOG_ERR, "ERROR: Failed to initialize SDMMC: %d\n", ret);
+      syslog(LOG_ERR, "ERROR: Failed to initialize SDMMC: %d (%s)\n",
+             ret, strerror(-ret));
     }
   else
     {
       syslog(LOG_INFO, "SDMMC initialized successfully\n");
     }
+
+  /* Give the card medium time to finish its power-up init sequence
+   * (CMD0 -> CMD55/ACMD41 -> ready).  The block device node /dev/mmcsd1
+   * exists as soon as board_sdmmc_initialize() binds the slot, but the
+   * card itself may still be busy; mounting too early makes vfat read an
+   * invalid boot sector and return -EINVAL.  A short settle delay here
+   * avoids that spurious first-mount failure.
+   */
+
+  usleep(300000);
 
   /* Wait for SD card to be ready and try to mount with retries.
    * Some cards take longer to become ready after power-on, so we first
@@ -200,6 +212,7 @@ static int sdmmc_mount_task(int argc, FAR char *argv[])
 
   syslog(LOG_INFO, "Waiting for SD card...\n");
 
+  int sd_mounted = 0;
   for (mount_retries = 0; mount_retries < 20; mount_retries++)
     {
       if (stat("/dev/mmcsd1", &buf) == 0)
@@ -208,11 +221,19 @@ static int sdmmc_mount_task(int argc, FAR char *argv[])
           if (ret == OK)
             {
               syslog(LOG_INFO, "SD card mounted at /mnt/sd\n");
+              sd_mounted = 1;
               break;
             }
 
-          syslog(LOG_ERR, "ERROR: Failed to mount SD card (attempt %d): %d\n",
-                 mount_retries + 1, ret);
+          /* A single failed attempt inside the retry window is normal:
+           * the card medium may still be settling.  Log at INFO so it
+           * is not mistaken for an error; only an exhaustive failure
+           * (all retries exhausted) is reported as ERROR below.
+           */
+
+          syslog(LOG_INFO, "SD card not ready, retrying mount "
+                 "(attempt %d): %d (%s)\n",
+                 mount_retries + 1, ret, strerror(-ret));
         }
       else
         {
@@ -223,63 +244,103 @@ static int sdmmc_mount_task(int argc, FAR char *argv[])
       usleep(200000);  /* Wait 200ms before retry */
     }
 
+  /* If the mount loop exhausted all retries without success, /mnt/sd is
+   * just the empty directory created by mkdir() above.  Without this
+   * diagnostic, "ls /mnt/sd" silently shows nothing and users wrongly
+   * assume the card is mounted but empty (e.g. missing AUDIO folder).
+   */
+  if (!sd_mounted)
+    {
+      syslog(LOG_ERR, "WARNING: SD card NOT mounted after %d attempts; "
+             "/mnt/sd is an empty placeholder dir.\n", mount_retries);
+      if (stat("/dev/mmcsd1", &buf) == 0)
+        {
+          syslog(LOG_ERR, "  /dev/mmcsd1 exists but vfat mount failed. "
+                 "Likely causes:\n"
+                 "    - Card formatted as exFAT/NTFS (NuttX vfat only "
+                 "supports FAT12/16/32; reformat as FAT32)\n"
+                 "    - Card has an MBR partition table (mount the "
+                 "partition, not the whole device)\n");
+        }
+      else
+        {
+          syslog(LOG_ERR, "  /dev/mmcsd1 not found: SDMMC init or card "
+                 "detection failed (card not inserted, GPIO17/CS timing, "
+                 "or wiring).\n");
+        }
+    }
+
 #ifdef CONFIG_SYSLOG_FILE
   /* After SD card mount, redirect syslog to a file on the SD card.
    * This keeps logs persistent across reboots.  syslog_file_channel()
    * internally handles log rotation, auto-reconnect on card removal,
    * and crash-safe flush via the interrupt buffer.
+   *
+   * Only attempt this when the SD card is actually mounted; otherwise
+   * /mnt/sd is an empty dir on the root FS and we would redirect syslog
+   * (and write test files) into the wrong place, silently filling up
+   * internal flash/RAM.
    */
 
-  ret = mkdir("/mnt/sd/syslog", 0755);
-  if (ret < 0 && errno != EEXIST)
+  if (sd_mounted)
     {
-      syslog(LOG_ERR, "ERROR: Failed to create syslog dir: %d\n", ret);
-    }
-
-  /* Diagnostic: verify VFAT writes work by writing a test file directly.
-   * This helps distinguish "syslog channel doesn't write" from
-   * "SD card is read-only / VFAT write is broken".
-   */
-
-    {
-      int test_fd;
-      test_fd = open("/mnt/sd/syslog/.writetest", O_WRONLY | O_CREAT | O_TRUNC,
-                     0644);
-      if (test_fd >= 0)
+      ret = mkdir("/mnt/sd/syslog", 0755);
+      if (ret < 0 && errno != EEXIST)
         {
-          ssize_t n = write(test_fd, "ok\n", 3);
-          close(test_fd);
-          syslog(LOG_INFO, "SD write test: fd=%d written=%d\n",
-                 test_fd, (int)n);
+          syslog(LOG_ERR, "ERROR: Failed to create syslog dir: %d\n", ret);
+        }
+
+      /* Diagnostic: verify VFAT writes work by writing a test file directly.
+       * This helps distinguish "syslog channel doesn't write" from
+       * "SD card is read-only / VFAT write is broken".
+       */
+
+        {
+          int test_fd;
+          test_fd = open("/mnt/sd/syslog/.writetest",
+                         O_WRONLY | O_CREAT | O_TRUNC, 0644);
+          if (test_fd >= 0)
+            {
+              ssize_t n = write(test_fd, "ok\n", 3);
+              close(test_fd);
+              syslog(LOG_INFO, "SD write test: fd=%d written=%d\n",
+                     test_fd, (int)n);
+            }
+          else
+            {
+              syslog(LOG_ERR, "ERROR: SD write test open failed: %d\n",
+                     test_fd);
+            }
+        }
+
+      FAR syslog_channel_t *file_ch;
+      file_ch = syslog_file_channel("/mnt/sd/syslog/app.log");
+      if (file_ch == NULL)
+        {
+          syslog(LOG_ERR, "ERROR: syslog_file_channel() failed\n");
         }
       else
         {
-          syslog(LOG_ERR, "ERROR: SD write test open failed: %d\n", test_fd);
-        }
-    }
+          /* Start a periodic flush task to sync the VFAT sector cache
+           * to disk.  Without this, writes stay in the file's private
+           * cache and are invisible to other file handles (cat, tail).
+           */
 
-  FAR syslog_channel_t *file_ch;
-  file_ch = syslog_file_channel("/mnt/sd/syslog/app.log");
-  if (file_ch == NULL)
-    {
-      syslog(LOG_ERR, "ERROR: syslog_file_channel() failed\n");
+          ret = task_create("syslog_flush", 50, 2048,
+                            syslog_flush_task, NULL);
+          if (ret < 0)
+            {
+              syslog(LOG_ERR, "ERROR: Failed to start flush task: %d\n",
+                     ret);
+            }
+
+          syslog(LOG_INFO, "Syslog file channel: /mnt/sd/syslog/app.log\n");
+          syslog_flush();
+        }
     }
   else
     {
-      /* Start a periodic flush task to sync the VFAT sector cache
-       * to disk.  Without this, writes stay in the file's private
-       * cache and are invisible to other file handles (cat, tail).
-       */
-
-      ret = task_create("syslog_flush", 50, 2048,
-                        syslog_flush_task, NULL);
-      if (ret < 0)
-        {
-          syslog(LOG_ERR, "ERROR: Failed to start flush task: %d\n", ret);
-        }
-
-      syslog(LOG_INFO, "Syslog file channel: /mnt/sd/syslog/app.log\n");
-      syslog_flush();
+      syslog(LOG_ERR, "Skipping syslog-to-SD redirect: SD card not mounted\n");
     }
 #endif /* CONFIG_SYSLOG_FILE */
 
