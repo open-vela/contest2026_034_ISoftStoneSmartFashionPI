@@ -170,4 +170,15 @@ void watch_battery_check_stop(void);
  */
 int watch_switch_to_watch_app(lv_obj_t *parent);
 
+/**
+ * @brief 切换到表情（潮玩）界面
+ *
+ * 清理 vendor 手表 UI 资源，初始化表情页面。
+ * 调用后原手表页面不可恢复。
+ *
+ * @param parent LVGL 屏幕对象（通常传 lv_scr_act()）
+ * @return 0 成功，负值失败
+ */
+int watch_switch_to_expression_app(lv_obj_t *parent);
+
 #endif /* WATCH_PAGES_H */

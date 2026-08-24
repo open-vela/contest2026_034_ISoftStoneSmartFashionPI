@@ -34,6 +34,65 @@
 #define UI_MODE_KEY          "\"ui_mode\":"
 
 /****************************************************************************
+ * Private Data
+ ****************************************************************************/
+
+static ui_mode_t g_current_ui_mode = UI_MODE_EXPRESSION;
+static lv_obj_t *g_switch_overlay = NULL;
+
+/****************************************************************************
+ * Private Functions
+ ****************************************************************************/
+
+/**
+ * @brief 显示模式切换遮罩（全屏黑底 + 转圈 + 提示文字）
+ */
+static void show_switch_overlay(lv_obj_t *parent)
+{
+  if (g_switch_overlay != NULL)
+    {
+      return;
+    }
+
+  /* 全屏遮罩 */
+  g_switch_overlay = lv_obj_create(parent);
+  lv_obj_set_size(g_switch_overlay, LV_PCT(100), LV_PCT(100));
+  lv_obj_set_style_bg_color(g_switch_overlay, lv_color_hex(0x000000), 0);
+  lv_obj_set_style_bg_opa(g_switch_overlay, LV_OPA_90, 0);
+  lv_obj_set_style_border_width(g_switch_overlay, 0, 0);
+  lv_obj_set_style_radius(g_switch_overlay, 0, 0);
+  lv_obj_clear_flag(g_switch_overlay, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_center(g_switch_overlay);
+
+  /* 转圈动画 */
+  lv_obj_t *spinner = lv_spinner_create(g_switch_overlay);
+  lv_obj_set_size(spinner, 80, 80);
+  lv_obj_center(spinner);
+
+  /* 提示文字 */
+  lv_obj_t *label = lv_label_create(g_switch_overlay);
+  lv_label_set_text(label, "Switching...");
+  lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), 0);
+  lv_obj_set_style_text_font(label, LV_FONT_DEFAULT, 0);
+  lv_obj_align_to(label, spinner, LV_ALIGN_OUT_BOTTOM_MID, 0, 20);
+
+  /* 强制刷新，确保遮罩立即显示 */
+  lv_refr_now(NULL);
+}
+
+/**
+ * @brief 隐藏并删除模式切换遮罩
+ */
+static void hide_switch_overlay(void)
+{
+  if (g_switch_overlay != NULL)
+    {
+      lv_obj_del(g_switch_overlay);
+      g_switch_overlay = NULL;
+    }
+}
+
+/****************************************************************************
  * Public Functions
  ****************************************************************************/
 
@@ -98,4 +157,71 @@ void ui_mode_save(ui_mode_t mode)
 
   fprintf(fp, "{\"ui_mode\":%d}\n", (int)mode);
   fclose(fp);
+}
+
+/**
+ * @brief 设置当前运行时的 UI 模式（由 launcher 在开机时调用）
+ */
+void ui_mode_set_current(ui_mode_t mode)
+{
+  g_current_ui_mode = mode;
+}
+
+/**
+ * @brief 获取当前运行时的 UI 模式
+ */
+ui_mode_t ui_mode_get_current(void)
+{
+  return g_current_ui_mode;
+}
+
+/**
+ * @brief 无重启切换到指定 UI 模式
+ *
+ * 清理当前 UI 资源，初始化目标 UI。切换完成后写入持久化配置，
+ * 保证下次开机仍进入该模式。
+ *
+ * 注意：ai_agent 语音任务在两种模式间切换时不会停止/重启，
+ * 这是当前实现的已知限制，后续可通过 voice_channel 增加暂停/恢复接口优化。
+ */
+int ui_mode_switch_runtime(ui_mode_t target, lv_obj_t *parent)
+{
+  if (parent == NULL)
+    {
+      return -1;
+    }
+
+  if (target == g_current_ui_mode)
+    {
+      return 0;
+    }
+
+  extern int watch_switch_to_watch_app(lv_obj_t *parent);
+  extern int watch_switch_to_expression_app(lv_obj_t *parent);
+
+  int ret = 0;
+
+  /* 显示切换遮罩，避免耗时清理/初始化期间 UI 假死 */
+  show_switch_overlay(parent);
+
+  if (target == UI_MODE_WATCH)
+    {
+      /* 潮玩 → 手表 */
+      ret = watch_switch_to_watch_app(parent);
+    }
+  else
+    {
+      /* 手表 → 潮玩 */
+      ret = watch_switch_to_expression_app(parent);
+    }
+
+  hide_switch_overlay();
+
+  if (ret == 0)
+    {
+      g_current_ui_mode = target;
+      ui_mode_save(target);
+    }
+
+  return ret;
 }

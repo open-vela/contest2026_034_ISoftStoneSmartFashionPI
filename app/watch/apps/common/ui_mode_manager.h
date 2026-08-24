@@ -22,6 +22,12 @@
 #define __UI_MODE_MANAGER_H
 
 /****************************************************************************
+ * Included Files
+ ****************************************************************************/
+
+#include <lvgl/lvgl.h>
+
+/****************************************************************************
  * Public Types
  ****************************************************************************/
 
@@ -60,5 +66,31 @@ ui_mode_t ui_mode_load(void);
  * @param mode 要保存的 UI 模式
  */
 void ui_mode_save(ui_mode_t mode);
+
+/**
+ * @brief 设置当前运行时的 UI 模式（由 launcher 在开机时调用）
+ *
+ * @param mode 当前 UI 模式
+ */
+void ui_mode_set_current(ui_mode_t mode);
+
+/**
+ * @brief 获取当前运行时的 UI 模式
+ *
+ * @return ui_mode_t 当前 UI 模式
+ */
+ui_mode_t ui_mode_get_current(void);
+
+/**
+ * @brief 无重启切换到指定 UI 模式
+ *
+ * 清理当前 UI 资源，初始化目标 UI。切换完成后写入持久化配置，
+ * 保证下次开机仍进入该模式。
+ *
+ * @param target 目标 UI 模式
+ * @param parent 目标 UI 的父容器（通常传 lv_scr_act()）
+ * @return 0 成功，负值失败
+ */
+int ui_mode_switch_runtime(ui_mode_t target, lv_obj_t *parent);
 
 #endif /* __UI_MODE_MANAGER_H */

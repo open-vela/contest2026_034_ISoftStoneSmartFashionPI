@@ -528,6 +528,7 @@ void watch_battery_check_stop(void)
 
 /* 外部声明 - vendor watch UI 入口（app_watch 模块） */
 extern int vw_launcher_init(lv_obj_t *parent);
+extern void vw_launcher_deinit(void);
 extern void vw_resource_init(void);
 
 /**
@@ -554,9 +555,33 @@ int watch_switch_to_watch_app(lv_obj_t *parent)
       s_restore_timer = NULL;
     }
 
-  /* 3. 初始化 vendor 资源系统（FreeType 字体等） */
+  /* 3. 初始化 vendor 资源系统（FreeType 字体等，已有重复调用保护） */
   vw_resource_init();
 
   /* 4. 启动 vendor 手表 UI（表盘 + 页面系统） */
   return vw_launcher_init(parent);
+}
+
+/**
+ * @brief 切换到表情（潮玩）界面
+ *
+ * 清理 vendor 手表 UI 资源，初始化表情页面。
+ * 调用后原手表页面不可恢复。
+ *
+ * @param parent LVGL 屏幕对象（通常传 lv_scr_act()）
+ * @return 0 成功，负值失败
+ */
+int watch_switch_to_expression_app(lv_obj_t *parent)
+{
+  /* 1. 清理 vendor 手表 UI 全部资源 */
+  vw_launcher_deinit();
+
+  /* 2. 初始化表情页面 */
+  s_page_root = watch_expression_page_init(parent);
+  if (s_page_root == NULL)
+    {
+      return -1;
+    }
+
+  return 0;
 }
