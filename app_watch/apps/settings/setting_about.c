@@ -1,8 +1,50 @@
 #include <stdio.h>
+#include <string.h>
+#include <unistd.h>
 #include <lvgl.h>
 #include <time.h>
+#include <sys/socket.h>
+#include <sys/ioctl.h>
+#include <net/if.h>
+#include <syslog.h>
+#include <errno.h>
 #include "../common/watch_pages.h"
 #include "../launcher/launcher.h"
+
+#define WATCH_DBG_LOG(fmt, ...) syslog(LOG_INFO, fmt, ##__VA_ARGS__)
+
+/* 获取WiFi网卡(wlan0)的MAC地址，格式: XX:XX:XX:XX:XX:XX */
+static void settings_get_wifi_mac_addr(char *buf, size_t buflen)
+{
+    int sock;
+    struct ifreq ifr;
+
+    if (buf == NULL || buflen < 18) {
+        return;
+    }
+
+    /* 默认值，获取失败时显示 */
+    snprintf(buf, buflen, "00:00:00:00:00:00");
+
+    sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock < 0) {
+        WATCH_DBG_LOG("[About] Failed to create socket for MAC: %d", errno);
+        return;
+    }
+
+    strncpy(ifr.ifr_name, "wlan0", IFNAMSIZ - 1);
+    ifr.ifr_name[IFNAMSIZ - 1] = '\0';
+
+    if (ioctl(sock, SIOCGIFHWADDR, &ifr) == 0) {
+        unsigned char *mac = (unsigned char *)ifr.ifr_hwaddr.sa_data;
+        snprintf(buf, buflen, "%02X:%02X:%02X:%02X:%02X:%02X",
+                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    } else {
+        WATCH_DBG_LOG("[About] ioctl SIOCGIFHWADDR failed: %d", errno);
+    }
+
+    close(sock);
+}
 
 static void settings_about_slide_gesture_handler(lv_event_t *e);
 
@@ -217,7 +259,9 @@ static void settings_about_create(void)
     lv_obj_set_pos(label6, 18, 14);
     
     lv_obj_t *value6 = lv_label_create(cont6);
-    lv_label_set_text(value6, "00:00:00:00:00:00:00");
+    char mac_str[18] = {0};
+    settings_get_wifi_mac_addr(mac_str, sizeof(mac_str));
+    lv_label_set_text(value6, mac_str);
     lv_obj_add_style(value6, &value_style, 0);
     lv_obj_set_style_text_font(value6, vw_resource_get_font(WATCH_REGULAR_FONT "_26"), LV_STATE_DEFAULT);
     lv_obj_set_pos(value6, 18, 42);
