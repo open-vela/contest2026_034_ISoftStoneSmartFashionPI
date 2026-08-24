@@ -196,6 +196,7 @@ static void goto_next_state(void)
 
         /* 尽早读取UI模式，选择对应的开机logo */
         g_boot_ui_mode = ui_mode_load();
+        ui_mode_set_current(g_boot_ui_mode);
         WATCH_DBG_LOG("[LAUNCHER] Boot UI mode: %d (0=expression, 1=watch)",
                       (int)g_boot_ui_mode);
 

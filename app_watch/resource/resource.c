@@ -113,8 +113,16 @@ static const int g_img_power_count = sizeof(g_img_power_resource_map) / sizeof(g
  *   GLOBAL FUNCTIONS
  **********************/
 
+static bool g_vw_resource_initialized = false;
+
 void vw_resource_init(void)
 {
+    if (g_vw_resource_initialized)
+      {
+        RES_LOG("resource_init already done, skip");
+        return;
+      }
+
     RES_LOG("resource_init started");
 
     /* Initialize FreeType library before creating fonts */
@@ -159,6 +167,7 @@ void vw_resource_init(void)
 #undef FONT_DEF
     RES_LOG("create %d fonts", font_index);
 
+    g_vw_resource_initialized = true;
 }
 
 const lv_font_t* vw_resource_get_font(const char* key)

@@ -47,6 +47,14 @@ extern "C"
 int vw_launcher_init(lv_obj_t *parent);
 
 /**
+ * @brief 清理 vendor 手表 UI 全部资源（无重启切换用）
+ *
+ * 停止定时器、清空页面栈、删除 content_area 与表盘对象。
+ * 调用后可通过 vw_launcher_init() 重新初始化。
+ */
+void vw_launcher_deinit(void);
+
+/**
  * @brief 返回主页函数
  *
  * @return int 成功返回0，失败返回负值

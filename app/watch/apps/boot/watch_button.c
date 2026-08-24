@@ -249,41 +249,14 @@ static void handle_boot_short_press(void)
   }
 }
 
-/****************************************************************************
- * Name: reboot_thread
- *
- * Description:
- *   独立线程执行重启（与语音命令 volc_event_callback 路径一致）
- *   在 LVGL 定时器回调中直接调用 axp2101_power_reset() 不可靠，
- *   改为在独立 pthread 中执行，确保与语音命令相同的线程上下文。
- ****************************************************************************/
-static void *reboot_thread(void *arg)
-{
-  (void)arg;
-  BTN_LOG("Reboot thread started, saving ui_mode=1 (watch)");
-
-  /* 直接写文件（与语音命令 tong_ai.c 完全一致的模式） */
-  FILE *fp = fopen("/mnt/spif/ui_mode.json", "w");
-  if (fp)
-    {
-      fprintf(fp, "{\"ui_mode\":1}\n");
-      fclose(fp);
-    }
-  BTN_LOG("ui_mode saved, calling axp2101_power_reset()");
-
-  axp2101_power_reset();
-  /* 若 PMU 复位未生效，兜底用 SoC 软件复位 */
-  BTN_LOG("axp2101_power_reset returned, trying up_systemreset()");
-  up_systemreset();
-  /* 不会到达这里 */
-  return NULL;
-}
+/* 无重启切换接口 */
+extern int ui_mode_switch_runtime(ui_mode_t target, lv_obj_t *parent);
 
 /****************************************************************************
  * Name: handle_boot_long_press
  *
  * Description:
- *   BOOT长按10s处理：表情模式下切换到手表模式（保存配置 + 重启）
+ *   BOOT长按10s处理：表情模式下切换到手表模式（运行时切换，不再重启）
  *   手表模式下不做任何操作。
  ****************************************************************************/
 
@@ -291,28 +264,22 @@ static void handle_boot_long_press(void)
 {
   BTN_LOG("BOOT long press detected");
 
-  ui_mode_t current_mode = ui_mode_load();
+  ui_mode_t current_mode = ui_mode_get_current();
 
   if (current_mode == UI_MODE_EXPRESSION)
     {
       /* 表情模式 → 切换到手表模式 */
-      BTN_LOG("Switching to watch UI mode, rebooting...");
+      BTN_LOG("Switching to watch UI mode (runtime)...");
 
       /* 视觉反馈：显示切换提示表情 */
       watch_expression_page_set_face("love", 0);
       lv_refr_now(NULL);
 
-      /* 在独立线程中执行重启（与语音命令相同的线程上下文） */
-      pthread_t tid;
-      pthread_attr_t attr;
-      pthread_attr_init(&attr);
-      pthread_attr_setstacksize(&attr, 4096);
-      if (pthread_create(&tid, &attr, reboot_thread, NULL) != 0)
+      int ret = ui_mode_switch_runtime(UI_MODE_WATCH, lv_scr_act());
+      if (ret != 0)
         {
-          BTN_LOG("Failed to create reboot thread");
+          BTN_LOG("Failed to switch to watch mode: %d", ret);
         }
-      pthread_attr_destroy(&attr);
-      pthread_detach(tid);
     }
   else
     {

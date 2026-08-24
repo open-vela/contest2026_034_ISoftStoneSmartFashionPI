@@ -200,6 +200,64 @@ static void state_timer_cb(lv_timer_t *timer)
 //  static lv_obj_t * dial_container = NULL;
  
 /**
+ * @brief 清理 vendor 手表 UI 全部资源（无重启切换用）
+ *
+ * 停止所有定时器、清空页面栈、删除表盘与 content_area。
+ * 调用后可通过 vw_launcher_init() 重新初始化。
+ */
+void vw_launcher_deinit(void)
+{
+  LAUNCHER_LOG("vw_launcher_deinit start");
+
+  /* 1. 停止业务定时器 */
+  if (charging_timer != NULL)
+    {
+      lv_timer_del(charging_timer);
+      charging_timer = NULL;
+    }
+
+  /* 2. 停止闹钟服务与传感器监控 */
+  alarm_service_deinit();
+  sensor_wrist_raise_timer_stop();
+  sensor_data_deinit();
+
+  /* 3. 删除页面栈中所有页面（反向删除，与 lv_watch_back_go_home 一致） */
+  for (int i = page_stack_size - 1; i >= 0; i--)
+    {
+      if (page_stack[i] != NULL)
+        {
+          lv_obj_del_async(page_stack[i]);
+          page_stack[i] = NULL;
+        }
+    }
+  page_stack_size = 0;
+
+  /* 4. 删除表盘（含 g_clock_timer） */
+  if (dial_get_container() != NULL)
+    {
+      dial_deinit(dial_get_container());
+    }
+
+  /* 5. 删除当前显示对象与内容区域 */
+  if (current_obj != NULL)
+    {
+      lv_obj_del(current_obj);
+      current_obj = NULL;
+    }
+
+  if (content_area != NULL)
+    {
+      lv_obj_del(content_area);
+      content_area = NULL;
+    }
+
+  /* 6. 重置状态机，允许重新初始化 */
+  current_state = STATE_INIT;
+
+  LAUNCHER_LOG("vw_launcher_deinit done");
+}
+
+/**
  * @brief 初始化并运行主页流程
  * 
  * @param parent 父容器对象
