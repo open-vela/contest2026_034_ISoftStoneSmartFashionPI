@@ -83,6 +83,12 @@ static volatile bool g_cancel_requested = false;
 static pthread_t g_start_tid;
 static lv_timer_t *g_volc_timer = NULL;
 
+/* 异常断开后自动重连(timer tick=50ms)，连续失败达上限后转手动 */
+#define RECONNECT_DELAY_TICKS 60   /* 60 x 50ms = 3s */
+#define RECONNECT_MAX_RETRY  3
+static int g_reconnect_ticks = 0;
+static int g_reconnect_count = 0;
+
 /* ========== 前向声明 ========== */
 static void slide_gesture_handler(lv_event_t *e);
 static void action_btn_click_handler(lv_event_t *e);
@@ -93,6 +99,7 @@ static void volc_timer_cb(lv_timer_t *timer);
 static void tong_page_deleted_cb(lv_event_t *e);
 static void volc_event_callback(volc_callback_type_t type, const char *data);
 static void *voice_start_thread(void *arg);
+static bool start_voice_session(void);
 
 /* ========== 公开API ========== */
 
@@ -337,23 +344,45 @@ static void try_volume_adjust(const char *text)
 {
     if (!text || !text[0]) return;
 
+    /* ── 音量最大/最小 ──────────────────────────────────── */
+    static const char * const vol_max_kw[] = {
+        "调到最大", "调至最大", "最大声", "声音最大", "音量最大", NULL };
+    static const char * const vol_min_kw[] = {
+        "调到最小", "调至最小", "最小声", "声音最小", "音量最小", NULL };
+    if (strstr_any(text, vol_max_kw)) {
+        watch_volume_set_percent(100);
+        syslog(LOG_INFO, "[TONG] vol max → 100%%\n");
+        return;
+    }
+    if (strstr_any(text, vol_min_kw)) {
+        watch_volume_set_percent(10);
+        syslog(LOG_INFO, "[TONG] vol min → 10%%\n");
+        return;
+    }
+
     /* ── 音量调大 ────────────────────────────────────────── */
-    if (strstr(text, "大声") || strstr(text, "音量调大") ||
-        strstr(text, "调大音量") || strstr(text, "声音大") ||
-        strstr(text, "加大音量") || strstr(text, "提高音量") ||
-        strstr(text, "音量增大") || strstr(text, "声音太小") ||
-        strstr(text, "听不见") || strstr(text, "响一点")) {
+    static const char * const vol_up_kw[] = {
+        "大声", "音量调大", "调大音量", "声音大", "加大音量",
+        "提高音量", "音量增大", "声音太小", "听不见", "响一点",
+        "音量加", "音量调高", "声音大点", "太小声", "大点声",
+        "大点声音", "再大声", "调大点", "声音调大", "音量提高",
+        "声音开大", "开大点声", "再响点", "加点音量", "音量不够",
+        "听不清", "声音好小", "太轻了", "大一点", "大点儿", NULL };
+    if (strstr_any(text, vol_up_kw)) {
         int pct = watch_volume_step_delta(10);
         syslog(LOG_INFO, "[TONG] vol up → %d%%\n", pct);
         return;
     }
 
     /* ── 音量调小 ────────────────────────────────────────── */
-    if (strstr(text, "小声") || strstr(text, "音量调小") ||
-        strstr(text, "调小音量") || strstr(text, "声音小") ||
-        strstr(text, "减小音量") || strstr(text, "降低音量") ||
-        strstr(text, "音量减小") || strstr(text, "声音太大") ||
-        strstr(text, "太吵") || strstr(text, "轻一点")) {
+    static const char * const vol_down_kw[] = {
+        "小声", "音量调小", "调小音量", "声音小", "减小音量",
+        "降低音量", "音量减小", "声音太大", "太吵", "轻一点",
+        "音量减", "音量调低", "声音小点", "太大声", "小点声",
+        "小点声音", "再小声", "调小点", "声音调小", "音量降低",
+        "声音开小", "开小点声", "太吵了", "吵死了", "好吵",
+        "太响了", "震耳朵", "小一点", "小点儿", NULL };
+    if (strstr_any(text, vol_down_kw)) {
         int pct = watch_volume_step_delta(-10);
         syslog(LOG_INFO, "[TONG] vol down → %d%%\n", pct);
         return;
@@ -364,16 +393,23 @@ static void try_volume_adjust(const char *text)
      * 在此被抢先匹配反而触发静音。"静音"交给服务器人格化应答（可闻）。 */
 
     /* ── 取消静音 ────────────────────────────────────────── */
-    if (strstr(text, "取消静音") || strstr(text, "解除静音") ||
-        strstr(text, "打开声音") || strstr(text, "恢复音量")) {
+    static const char * const vol_unmute_kw[] = {
+        "取消静音", "解除静音", "打开声音", "恢复音量",
+        "打开音量", "有声音", "出声音", "恢复声音", "开启声音",
+        "不要静音", "声音回来", "可以说话了", NULL };
+    if (strstr_any(text, vol_unmute_kw)) {
         watch_volume_set_percent(50);
         syslog(LOG_INFO, "[TONG] vol unmute → 50%%\n");
         return;
     }
 
     /* ── 音量设为指定值 ──────────────────────────────────── */
-    if (strstr(text, "音量调到") || strstr(text, "音量设为") ||
-        strstr(text, "设置音量") || strstr(text, "音量设置")) {
+    static const char * const vol_set_kw[] = {
+        "音量调到", "音量设为", "设置音量", "音量设置",
+        "调音量到", "把音量调到", "音量调到第", "调到",
+        "音量调成", "音量改到", "音量变成", "调成",
+        "调到百分之", "设为百分之", "音量百分之", NULL };
+    if (strstr_any(text, vol_set_kw)) {
         const char *p = text;
         while (*p) {
             if (*p >= '0' && *p <= '9') {
@@ -496,14 +532,36 @@ static void volc_timer_cb(lv_timer_t *timer)
         case VOLC_UI_ERROR:        ui_state = TONG_STATE_ERROR; break;
         default:                   ui_state = TONG_STATE_IDLE; break;
         }
+        if (g_pending_volc_state == VOLC_UI_CONNECTED)
+            g_reconnect_count = 0;  /* 会话健康，重置自动重连计数 */
         tong_update_ui_state(ui_state, NULL);
     }
 
-    if (flags & PENDING_ERROR)
+    if (flags & PENDING_ERROR) {
         tong_update_ui_state(TONG_STATE_ERROR, g_pending_error_msg);
+        /* 会话异常死亡(服务端断开等)后延迟自动重连，免得用户必须
+         * 手动恢复。连续失败达上限后停在 ERROR 等手动。 */
+        if (!g_cancel_requested && g_reconnect_count < RECONNECT_MAX_RETRY)
+            g_reconnect_ticks = RECONNECT_DELAY_TICKS;
+    }
 
-    if (flags & PENDING_DISCONNECTED)
+    if (flags & PENDING_DISCONNECTED) {
         tong_update_ui_state(TONG_STATE_IDLE, NULL);
+        g_reconnect_ticks = 0;  /* 主动停止，取消自动重连 */
+    }
+
+    /* 异常断开自动重连倒计时 */
+    if (g_reconnect_ticks > 0) {
+        g_reconnect_ticks--;
+        if (g_reconnect_ticks == 0) {
+            if (!g_starting && !g_cancel_requested && !volc_voice_is_active()) {
+                TONG_LOG("[TONG] auto reconnecting after abnormal disconnect\n");
+                g_reconnect_count++;
+                tong_update_ui_state(TONG_STATE_CONNECTING, NULL);
+                start_voice_session();
+            }
+        }
+    }
 
     /* 检查启动线程状态 */
     if (!g_starting && g_cancel_requested) {
@@ -540,6 +598,30 @@ static void *voice_start_thread(void *arg)
     return NULL;
 }
 
+/* 创建启动线程(按钮/自动重连共用)。调用前 UI 应已切到 CONNECTING。 */
+static bool start_voice_session(void)
+{
+    g_cancel_requested = false;
+    g_starting = true;
+    g_start_ret = -1;
+
+    volc_voice_init();
+
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setstacksize(&attr, START_THREAD_STACK);
+    int ret = pthread_create(&g_start_tid, &attr, voice_start_thread, NULL);
+    pthread_attr_destroy(&attr);
+
+    if (ret != 0) {
+        TONG_LOG("[TONG] start thread create failed: %d\n", ret);
+        g_starting = false;
+        tong_update_ui_state(TONG_STATE_ERROR, "无法启动语音服务");
+        return false;
+    }
+    return true;
+}
+
 /* ========== 按钮事件处理 ========== */
 
 static void action_btn_click_handler(lv_event_t *e)
@@ -553,24 +635,7 @@ static void action_btn_click_handler(lv_event_t *e)
         }
 
         tong_update_ui_state(TONG_STATE_CONNECTING, NULL);
-
-        g_cancel_requested = false;
-        g_starting = true;
-        g_start_ret = -1;
-
-        volc_voice_init();
-
-        pthread_attr_t attr;
-        pthread_attr_init(&attr);
-        pthread_attr_setstacksize(&attr, START_THREAD_STACK);
-        int ret = pthread_create(&g_start_tid, &attr, voice_start_thread, NULL);
-        pthread_attr_destroy(&attr);
-
-        if (ret != 0) {
-            TONG_LOG("[TONG] start thread create failed: %d\n", ret);
-            g_starting = false;
-            tong_update_ui_state(TONG_STATE_ERROR, "无法启动语音服务");
-        }
+        start_voice_session();
         break;
     }
 
@@ -597,25 +662,7 @@ static void action_btn_click_handler(lv_event_t *e)
     case TONG_STATE_ERROR:
         /* 重试 */
         tong_update_ui_state(TONG_STATE_CONNECTING, NULL);
-        g_cancel_requested = false;
-        g_starting = true;
-        g_start_ret = -1;
-
-        volc_voice_init();
-
-        {
-            pthread_attr_t attr;
-            pthread_attr_init(&attr);
-            pthread_attr_setstacksize(&attr, START_THREAD_STACK);
-            int ret = pthread_create(&g_start_tid, &attr, voice_start_thread, NULL);
-            pthread_attr_destroy(&attr);
-
-            if (ret != 0) {
-                TONG_LOG("[TONG] retry thread create failed: %d\n", ret);
-                g_starting = false;
-                tong_update_ui_state(TONG_STATE_ERROR, "无法启动语音服务");
-            }
-        }
+        start_voice_session();
         break;
     }
 }
@@ -695,10 +742,8 @@ static void tong_page_deleted_cb(lv_event_t *e)
 {
     TONG_LOG("tong_ai: page deleted\n");
 
-    /* 停止语音会话 */
-    if (volc_voice_is_active()) {
-        volc_voice_stop();
-    }
+    /* 停止语音会话(含异常死亡后未释放的残留资源清理) */
+    volc_voice_stop();
 
     /* 清理定时器 */
     if (g_volc_timer) {
@@ -711,6 +756,8 @@ static void tong_page_deleted_cb(lv_event_t *e)
     g_starting = false;
     g_cancel_requested = false;
     g_tong_state = TONG_STATE_IDLE;
+    g_reconnect_ticks = 0;
+    g_reconnect_count = 0;
 
     /* 释放pending文本缓冲区 */
     free(g_pending_error_msg);  g_pending_error_msg = NULL;
