@@ -79,7 +79,12 @@ CSRCS += $(wildcard $(POWER_PNG_GEN_DIR)/*.c)
 
 # app_watch apps (tong_ai uses volcengine E2E, independent of ai_agent)
 CSRCS += $(shell find $(VENDOR_WATCH_DIR)/apps/alarm -name "*.c")
-CSRCS += $(shell find $(VENDOR_WATCH_DIR)/apps/boot -name "*.c")
+# NOTE: app_watch/apps/boot is intentionally NOT compiled here.
+# ./apps/boot (this tree) is the maintained superset (expression-UI
+# boot logo/animation + watch_button); the app_watch copy is a stale
+# vendor duplicate whose boot_logo_deinit & friends collide at link
+# time (multiple definition). Headers stay reachable via the relative
+# #include "../boot/*.h" used by app_watch sources.
 CSRCS += $(shell find $(VENDOR_WATCH_DIR)/apps/calendar -name "*.c")
 CSRCS += $(shell find $(VENDOR_WATCH_DIR)/apps/common -name "*.c")
 CSRCS += $(shell find $(VENDOR_WATCH_DIR)/apps/home_control -name "*.c")

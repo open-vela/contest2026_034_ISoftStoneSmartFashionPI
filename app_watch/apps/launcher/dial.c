@@ -110,6 +110,9 @@ static const void *moon_min_images[NUMBER_COUNT];
 #define BATTERY_COUNT 5
 static const void *battery_images[BATTERY_COUNT];
 
+/* 充电中电量图标数组（带闪电标记） */
+static const void *charging_images[BATTERY_COUNT];
+
 /* 表盘缩略图数组 */
 #define DIAL_SWITCH_COUNT 3
 static const void *dial_switch_images[DIAL_SWITCH_COUNT];
@@ -163,6 +166,13 @@ static void init_dial_images(void)
     battery_images[2] = vw_resource_get_img("icon_dial_bat_2");
     battery_images[3] = vw_resource_get_img("icon_dial_bat_3");
     battery_images[4] = vw_resource_get_img("icon_dial_bat_4");
+
+    /* 充电中电量图标（带闪电标记） */
+    charging_images[0] = vw_resource_get_img("icon_dial_chg_0");
+    charging_images[1] = vw_resource_get_img("icon_dial_chg_1");
+    charging_images[2] = vw_resource_get_img("icon_dial_chg_2");
+    charging_images[3] = vw_resource_get_img("icon_dial_chg_3");
+    charging_images[4] = vw_resource_get_img("icon_dial_chg_4");
     
     /* 表盘缩略图 */
     dial_switch_images[0] = vw_resource_get_img("icon_dial_switch_default");
@@ -203,6 +213,18 @@ static int get_battery_icon_index(uint8_t percent)
     else return 0;
 }
 
+/* 按充电状态+电量选当前电量图标：
+ * 充电中(axp2101 charge_status==1)显示带闪电的一套，否则显示普通一套。
+ * 充电图资源缺失时回退普通图标。 */
+static const void *current_battery_icon(uint8_t percent)
+{
+    int idx = get_battery_icon_index(percent);
+    bool charging = (axp2101_get_pmu_charge_status() == 1);
+    const void *img = charging ? charging_images[idx]
+                               : battery_images[idx];
+    return img ? img : battery_images[idx];
+}
+
 /* 设置数字图片 */
 static void set_number_image(lv_obj_t *img_obj, int number, const void *images[])
 {
@@ -233,9 +255,7 @@ static void update_default_dial(void)
     snprintf(date_str, sizeof(date_str), "%d月%d日 %s", info.tm_mon + 1, info.tm_mday, chineseWeekdays[info.tm_wday]);
     lv_label_set_text(date_label, date_str);
 
-    uint8_t battery_percent = get_battery_percentage();
-    int battery_index = get_battery_icon_index(battery_percent);
-    lv_img_set_src(bat_icon_img, battery_images[battery_index]);
+    lv_img_set_src(bat_icon_img, current_battery_icon(get_battery_percentage()));
 
     /* WiFi图标：已连接时显示，未连接时隐藏 */
     if (wifi_icon_img) {
@@ -271,9 +291,7 @@ static void update_moon_dial(void)
     snprintf(date_str, sizeof(date_str), "%d", info.tm_mday);
     lv_label_set_text(moon_date_label, date_str);
 
-    uint8_t battery_percent = get_battery_percentage();
-    int battery_index = get_battery_icon_index(battery_percent);
-    lv_img_set_src(moon_bat_icon, battery_images[battery_index]);
+    lv_img_set_src(moon_bat_icon, current_battery_icon(get_battery_percentage()));
 
     /* WiFi图标：已连接时显示，未连接时隐藏 */
     if (moon_wifi_icon) {
@@ -340,9 +358,7 @@ static void create_default_dial(lv_obj_t *parent)
 
     /* 右上角电量图标Y向下偏移20px，从右向左偏移30 */
     bat_icon_img = lv_img_create(parent);
-    uint8_t init_battery = get_battery_percentage();
-    int init_index = get_battery_icon_index(init_battery);
-    lv_img_set_src(bat_icon_img, battery_images[init_index]);
+    lv_img_set_src(bat_icon_img, current_battery_icon(get_battery_percentage()));
     lv_obj_align(bat_icon_img, LV_ALIGN_TOP_RIGHT, -34, 20);
 
     /* 蓝牙Y向下20px，根据电量64*64，基于电量向左5px */
@@ -406,9 +422,7 @@ static void create_moon_dial(lv_obj_t *parent)
 
     /* 右上角电量图标Y向下偏移20px，从右向左偏移30 */
     moon_bat_icon = lv_img_create(parent);
-    uint8_t init_battery = get_battery_percentage();
-    int init_index = get_battery_icon_index(init_battery);
-    lv_img_set_src(moon_bat_icon, battery_images[init_index]);
+    lv_img_set_src(moon_bat_icon, current_battery_icon(get_battery_percentage()));
     lv_obj_align(moon_bat_icon, LV_ALIGN_TOP_RIGHT, -34, 20);
 
     /* 藝牙功能未启用，底层能力已存在，界面不显示*/

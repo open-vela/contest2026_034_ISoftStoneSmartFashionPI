@@ -39,6 +39,7 @@
 /* ── 设备状态读取（电量/音量）────────────────────────────── */
 extern uint8_t watch_battery_get_level(void);
 extern int  watch_volume_get_percent(void);
+extern int  watch_volume_get_value(void);
 
 #include "mbedtls/ssl.h"
 #include "mbedtls/entropy.h"
@@ -283,6 +284,26 @@ static void notify_state(volc_ui_state_t state)
     buf[0] = (char)state;
     buf[1] = '\0';
     notify_ui(VOLC_CB_UI_STATE, buf);
+}
+
+/* 会话异常终止(服务端断开/读写失败)的统一善后：清运行标志并
+ * 通知 UI 脱离 THINKING/LISTENING 等中间状态，否则界面会永远
+ * 卡在"思考中"——断开后下一次 ASREnded 永远不会到来。
+ * 资源(TLS/socket/播放器)不在此释放：另一线程可能仍持有
+ * s_tls，清理由下一次 volc_voice_start() 的残留清理或
+ * volc_voice_stop() 完成。 */
+static void session_dead(const char *reason)
+{
+    if (!s_running)
+        return;  /* 正常停止或已处理过，幂等 */
+
+    syslog(LOG_WARNING, "[%s] session dead: %s\n", TAG, reason);
+    s_running = false;
+    s_session_active = false;
+    s_playing = false;
+    s_cooldown_active = false;
+    notify_ui(VOLC_CB_ERROR_MSG, "连接已断开");
+    notify_state(VOLC_UI_ERROR);
 }
 
 /* ========== TLS连接 ========== */
@@ -747,6 +768,7 @@ static int send_start_session(tls_ctx_t *ctx, const char *session_id,
     int style_len = snprintf(style, sizeof(style),
         "你的每次回复严格控制在30-40个字以内，不能超过40个字，必须简短精炼。"
         "用口语化的方式回复，像真正的朋友聊天一样自然，不要用书面语。"
+        "不说'让我查一下'，不推销自己、不描述功能。"
         "可以适当加一两个表情符号让对话更活泼。"
         "不要说'有什么可以帮你的'之类的客套话，直接回应小朋友说的话。"
         "遇到小朋友分享开心的事要一起开心，遇到难过的事要安慰鼓励。"
@@ -797,18 +819,19 @@ static int send_start_session(tls_ctx_t *ctx, const char *session_id,
             "如果用户询问音量大小，请直接告知音量百分比。"
             "如果用户要求调大音量，请回复'好的，音量已调大'。"
             "如果用户要求调小音量，请回复'好的，音量已调小'。"
-            "如果用户要求静音，请回复'好的，已静音'。"
             "如果用户要求设置音量到指定值，请回复'好的，音量已调整'。"
             "不要编造与实际设备状态不符的数值。",
             bat, vol);
     }
 
     cJSON *dialog = cJSON_AddObjectToObject(root, "dialog");
+    /* 人设与表情模式(volc_e2e_conn.c E2E_SYSTEM_ROLE)同步，但名字用
+     * 小通(与手表UI一致)，形态描述改为手表语境 */
     cJSON_AddStringToObject(dialog, "bot_name", "小通");
     cJSON_AddStringToObject(dialog, "system_role",
-        "你是小通，一个集成在儿童智能手表里的AI陪聊机器人。"
-        "你的主人是一位小朋友，你是他们手腕上的好伙伴。"
-        "你不是知识问答机器人，你是会倾听、会共情、会逗人开心的朋友。");
+        "你是小通，AI情绪能量潮玩，住在儿童智能手表里，屏幕会显示表情。"
+        "性格温柔耐心、偶尔小幽默。中文口语回复，不超过40字，不说让我查一下。"
+        "不推销自己、不描述功能。");
     cJSON_AddStringToObject(dialog, "speaking_style", style);
     cJSON_AddStringToObject(dialog, "dialog_id", "");
 
@@ -1117,6 +1140,28 @@ static void playback_write(const unsigned char *data, size_t len)
     }
 }
 
+/* 创建播放器并把系统音量同步进去：nxplayer_playraw() 内部会把音量
+ * 重置为硬编码默认值，直接冲掉语音/UI 设置的音量——agent 侧
+ * (voice_channel.c)每次播放前同样先做此同步。 */
+static struct nxplayer_s *create_player_with_volume(void)
+{
+    struct nxplayer_s *pl = nxplayer_create();
+    if (!pl)
+        return NULL;
+
+    nxplayer_setdevice(pl, "/dev/audio/pcm0");
+
+    int sys_vol = watch_volume_get_value();
+    syslog(LOG_INFO, "[%s] TTS volume sync: sys_vol=%d\n", TAG, sys_vol);
+    if (sys_vol >= 0)
+        nxplayer_setvolume(pl, (uint16_t)sys_vol);
+    else
+        syslog(LOG_WARNING, "[%s] TTS volume sync FAILED, "
+            "using nxplayer default\n", TAG);
+
+    return pl;
+}
+
 static void playback_stop(void)
 {
     if (s_pcm_buf && s_pcm_len > 0) {
@@ -1142,9 +1187,8 @@ static void playback_stop(void)
                 nxplayer_release(s_nxplayer);
                 s_nxplayer = NULL;
             }
-            s_nxplayer = nxplayer_create();
+            s_nxplayer = create_player_with_volume();
             if (s_nxplayer) {
-                nxplayer_setdevice(s_nxplayer, "/dev/audio/pcm0");
                 int play_ret = nxplayer_playraw(s_nxplayer, wav_path,
                     AUDIO_FMT_PCM, 0, VOLC_I2S_CHANNELS, VOLC_PLAYBACK_BITS,
                     VOLC_PLAYBACK_RATE, 0);
@@ -1192,9 +1236,8 @@ void volc_play_local_wav(const char *path)
     }
 
     /* 创建播放器播放SD卡WAV */
-    s_nxplayer = nxplayer_create();
+    s_nxplayer = create_player_with_volume();
     if (s_nxplayer) {
-        nxplayer_setdevice(s_nxplayer, "/dev/audio/pcm0");
         int ret = nxplayer_playraw(s_nxplayer, path,
             AUDIO_FMT_PCM, 0, VOLC_I2S_CHANNELS, VOLC_PLAYBACK_BITS,
             VOLC_PLAYBACK_RATE, 0);
@@ -1509,6 +1552,7 @@ static void *recv_thread(void *arg)
     }
 
     free(buf);
+    session_dead("recv closed");
     syslog(LOG_INFO, "[%s] recv thread exit\n", TAG);
     return NULL;
 }
@@ -1644,6 +1688,7 @@ static void *send_thread(void *arg)
     free(silence_buf);
     capture_stop();
     capture_deinit();
+    session_dead("send closed");
     syslog(LOG_INFO, "[%s] send thread exit\n", TAG);
     return NULL;
 }
@@ -1660,6 +1705,41 @@ int volc_voice_init(void)
 
 int volc_voice_start(volc_event_cb_t cb)
 {
+    /* 上一次会话若异常死亡(session_dead 只清标志)，TLS ctx、
+     * socket、播放器等资源未释放，这里补清理。先关 fd 唤醒仍
+     * 阻塞在 ssl_read/ssl_write 上的线程，保证 join 快速返回。 */
+    if (s_tls)
+        {
+        syslog(LOG_WARNING, "[%s] cleaning stale session resources\n", TAG);
+        if (s_tls->net.fd >= 0)
+            {
+            close(s_tls->net.fd);
+            s_tls->net.fd = -1;
+            }
+        if (s_recv_tid)
+            {
+            pthread_join(s_recv_tid, NULL);
+            s_recv_tid = 0;
+            }
+        if (s_send_tid)
+            {
+            pthread_join(s_send_tid, NULL);
+            s_send_tid = 0;
+            }
+        /* 清空 s_pcm_len，避免 playback_stop 把半截 TTS 播出去 */
+        s_pcm_len = 0;
+        playback_stop();
+        if (s_nxplayer)
+            {
+            nxplayer_release(s_nxplayer);
+            s_nxplayer = NULL;
+            }
+        capture_deinit();
+        tls_free(s_tls);
+        free(s_tls);
+        s_tls = NULL;
+        }
+
     s_callback = cb;
     s_running = true;
     s_session_active = false;
@@ -1764,7 +1844,11 @@ fail:
 
 void volc_voice_stop(void)
 {
-    if (!s_running) return;
+    bool was_running = s_running;
+
+    /* 未启动，或异常死亡后资源已由 volc_voice_start 清理 */
+    if (!was_running && !s_tls)
+        return;
 
     s_running = false;
     s_session_active = false;
@@ -1772,7 +1856,9 @@ void volc_voice_stop(void)
     if (s_recv_tid) { pthread_join(s_recv_tid, NULL); s_recv_tid = 0; }
     if (s_send_tid) { pthread_join(s_send_tid, NULL); s_send_tid = 0; }
 
-    if (s_tls && s_tls->net.fd >= 0) {
+    /* 仅会话还活着时礼貌收尾：异常死亡后 socket 已被服务端关闭，
+     * 发 FinishSession/FinishConnection 只会打一堆 ssl_write 错误 */
+    if (was_running && s_tls && s_tls->net.fd >= 0) {
         send_finish_session(s_tls, s_session_id);
         usleep(100000);
         send_finish_connection(s_tls);
