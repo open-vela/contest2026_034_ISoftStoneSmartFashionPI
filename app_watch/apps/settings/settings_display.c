@@ -182,9 +182,11 @@ static void settings_display_create(void)
     lv_obj_clear_flag(timeout_label, LV_OBJ_FLAG_SCROLLABLE);
     
     // 添加箭头图标
-    lv_obj_t *timeout_arrow = lv_img_create(timeout_item);
-    lv_img_set_src(timeout_arrow, vw_resource_get_img("icon_sport_right_arrow"));
-    lv_obj_set_pos(timeout_arrow, WATCH_BTN_WIDTH - 18 - 44, (WATCH_BTN_HEIGHT - 44) / 2);
+    lv_obj_t *timeout_arrow = lv_label_create(timeout_item);
+    lv_label_set_text(timeout_arrow, ">");
+    lv_obj_set_style_text_color(timeout_arrow, lv_color_white(), 0);
+    lv_obj_set_style_text_font(timeout_arrow, vw_resource_get_font(WATCH_REGULAR_FONT "_32"), 0);
+    lv_obj_align(timeout_arrow, LV_ALIGN_RIGHT_MID, -18, 0);
     lv_obj_clear_flag(timeout_arrow, LV_OBJ_FLAG_SCROLLABLE);
 
     // 添加滑动手势处理
@@ -321,7 +323,7 @@ static void settings_display_timeout_create(void)
     if (selected_idx > 11) selected_idx = 11;
     lv_roller_set_selected(timeout_roller, selected_idx, LV_ANIM_OFF);
     lv_obj_set_width(timeout_roller, WATCH_BTN_WIDTH);
-    lv_obj_align(timeout_roller, LV_ALIGN_TOP_MID, 0, 36);
+    lv_obj_align(timeout_roller, LV_ALIGN_TOP_MID, 0, 20);
     
     // 设置滚轮样式
     lv_obj_set_style_border_color(timeout_roller, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -349,7 +351,7 @@ static void settings_display_timeout_create(void)
     lv_obj_set_style_border_width(confirm_btn, 0, LV_STATE_DEFAULT);
     lv_obj_set_style_radius(confirm_btn, 32, LV_STATE_DEFAULT);
     lv_obj_set_style_shadow_width(confirm_btn, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_align(confirm_btn, LV_ALIGN_TOP_LEFT, 35, 363);
+    lv_obj_align(confirm_btn, LV_ALIGN_TOP_LEFT, 25, 335);
     lv_obj_t *confirm_btn_label = lv_label_create(confirm_btn);
     lv_label_set_text(confirm_btn_label, "确认");
     lv_obj_set_style_text_font(confirm_btn_label, vw_resource_get_font(WATCH_REGULAR_FONT "_32"), 0);
@@ -365,7 +367,7 @@ static void settings_display_timeout_create(void)
     lv_obj_set_style_border_width(cancel_btn, 0, LV_STATE_DEFAULT);
     lv_obj_set_style_radius(cancel_btn, 32, LV_STATE_DEFAULT);
     lv_obj_set_style_shadow_width(cancel_btn, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_align(cancel_btn, LV_ALIGN_TOP_LEFT, 225, 363);
+    lv_obj_align(cancel_btn, LV_ALIGN_TOP_LEFT, 200, 335);
     lv_obj_t *cancel_btn_label = lv_label_create(cancel_btn);
     lv_label_set_text(cancel_btn_label, "取消");
     lv_obj_set_style_text_font(cancel_btn_label, vw_resource_get_font(WATCH_REGULAR_FONT "_32"), 0);
