@@ -50,7 +50,7 @@ static void settings_app_create(void)
     lv_obj_add_style(settings_base, &style_base,0);
     lv_obj_clear_flag(settings_base, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_size(settings_base, WATCH_SCREEN_WIDTH, WATCH_SCREEN_HEIGHT);
-    lv_obj_align(settings_base,LV_ALIGN_CENTER, 0, 0);
+    lv_obj_align(settings_base,LV_ALIGN_CENTER, 0, 20);
     // lv_obj_set_scroll_dir(settings_base, LV_DIR_HOR);
 
 	lv_obj_t *list = lv_list_create(settings_base);
