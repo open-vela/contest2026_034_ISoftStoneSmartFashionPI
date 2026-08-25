@@ -76,8 +76,8 @@ static void settings_dateset_create(void)
     
     lv_roller_set_options(year_roller, years_buf, LV_ROLLER_MODE_NORMAL);
     lv_roller_set_selected(year_roller, selected_year - 2000, LV_ANIM_OFF);
-    lv_obj_set_width(year_roller, 139);
-    lv_obj_align(year_roller, LV_ALIGN_TOP_LEFT, 26, 81);
+    lv_obj_set_width(year_roller, 140);
+    lv_obj_align(year_roller, LV_ALIGN_TOP_LEFT, 6, 81);
     
     // 设置滚轮样式
     lv_obj_set_style_border_color(year_roller, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -104,7 +104,7 @@ static void settings_dateset_create(void)
                         LV_ROLLER_MODE_INFINITE);
     lv_roller_set_selected(month_roller, selected_month - 1, LV_ANIM_OFF);
     lv_obj_set_width(month_roller, 90);
-    lv_obj_align(month_roller, LV_ALIGN_TOP_LEFT, 26 + 139 + 21, 81);
+    lv_obj_align(month_roller, LV_ALIGN_TOP_LEFT, 6 + 140 + 21, 81);
     
     // 设置滚轮样式
     lv_obj_set_style_border_color(month_roller, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -134,7 +134,7 @@ static void settings_dateset_create(void)
     lv_roller_set_options(day_roller, days_buf, LV_ROLLER_MODE_INFINITE);
     lv_roller_set_selected(day_roller, selected_day - 1, LV_ANIM_OFF);
     lv_obj_set_width(day_roller, 90);
-    lv_obj_align(day_roller, LV_ALIGN_TOP_LEFT, 26 + 139 + 21 + 90 + 21, 81);
+    lv_obj_align(day_roller, LV_ALIGN_TOP_LEFT, 6 + 140 + 21 + 90 + 21, 81);
     
     // 设置滚轮样式
     lv_obj_set_style_border_color(day_roller, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -159,7 +159,7 @@ static void settings_dateset_create(void)
     lv_obj_set_style_border_width(confirm_btn, 0, LV_STATE_DEFAULT);
     lv_obj_set_style_radius(confirm_btn, 32, LV_STATE_DEFAULT);
     lv_obj_set_style_shadow_width(confirm_btn, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_align(confirm_btn, LV_ALIGN_TOP_LEFT, 35, 363);
+    lv_obj_align(confirm_btn, LV_ALIGN_TOP_LEFT, 25, 335);
     lv_obj_t *confirm_btn_label = lv_label_create(confirm_btn);
     lv_label_set_text(confirm_btn_label, "确认");
     lv_obj_set_style_text_font(confirm_btn_label, vw_resource_get_font(WATCH_REGULAR_FONT "_32"), 0);
@@ -175,7 +175,7 @@ static void settings_dateset_create(void)
     lv_obj_set_style_border_width(cancel_btn, 0, LV_STATE_DEFAULT);
     lv_obj_set_style_radius(cancel_btn, 32, LV_STATE_DEFAULT);
     lv_obj_set_style_shadow_width(cancel_btn, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_align(cancel_btn, LV_ALIGN_TOP_LEFT, 225, 363);
+    lv_obj_align(cancel_btn, LV_ALIGN_TOP_LEFT, 200, 335);
     lv_obj_t *cancel_btn_label = lv_label_create(cancel_btn);
     lv_label_set_text(cancel_btn_label, "取消");
     lv_obj_set_style_text_font(cancel_btn_label, vw_resource_get_font(WATCH_REGULAR_FONT "_32"), 0);
@@ -248,7 +248,11 @@ static void set_system_time(int year, int month, int day, int hour, int minute)
     time_to_set.tm_min = minute;
     time_to_set.tm_isdst = -1;
     
-    // 转换为time_t并设置系统时间
+    /* CONFIG_LIBC_LOCALTIME=y 时 mktime() 调用 tzset()+localsub，会读 TZ
+     * 环境变量把本地时间正确转为 UTC epoch。无需手动减时区偏移。
+     * RTC 存本地时间（broken-down），clock_basetime 用 timegm 把它当 UTC
+     * 读入 CLOCK_REALTIME，watch_main 启动时再减去 tz_offset 修正。
+     */
     time_t new_time = mktime(&time_to_set);
     
     struct timeval new_timeval;
@@ -263,17 +267,17 @@ static void set_system_time(int year, int month, int day, int hour, int minute)
     
     int fd = open("/dev/rtc0", O_RDWR);
     if (fd >= 0) {
-        struct tm utc_tm;
-        gmtime_r(&new_time, &utc_tm);
+        struct tm local_tm;
+        localtime_r(&new_time, &local_tm);
         struct rtc_time rtctime;
         memset(&rtctime, 0, sizeof(rtctime));
-        rtctime.tm_sec   = utc_tm.tm_sec;
-        rtctime.tm_min   = utc_tm.tm_min;
-        rtctime.tm_hour  = utc_tm.tm_hour;
-        rtctime.tm_mday  = utc_tm.tm_mday;
-        rtctime.tm_mon   = utc_tm.tm_mon;
-        rtctime.tm_year  = utc_tm.tm_year;
-        rtctime.tm_wday  = utc_tm.tm_wday;
+        rtctime.tm_sec   = local_tm.tm_sec;
+        rtctime.tm_min   = local_tm.tm_min;
+        rtctime.tm_hour  = local_tm.tm_hour;
+        rtctime.tm_mday  = local_tm.tm_mday;
+        rtctime.tm_mon   = local_tm.tm_mon;
+        rtctime.tm_year  = local_tm.tm_year;
+        rtctime.tm_wday  = local_tm.tm_wday;
         int rtc_ret = ioctl(fd, RTC_SET_TIME, (unsigned long)&rtctime);
         close(fd);
         if (rtc_ret >= 0)

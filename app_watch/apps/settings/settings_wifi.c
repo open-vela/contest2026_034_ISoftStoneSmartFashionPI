@@ -1077,23 +1077,23 @@ static void *wifi_reconnect_thread(void *arg)
             clock_gettime(CLOCK_REALTIME, &ts);
 
             if (synced) {
-                /* 同步成功：将 UTC 时间写回 RTC，防止重启后
-                 * 系统时间回退到 RTC 中的旧值（本地时间当 UTC
-                 * 会导致时间快 8 小时）。
+                /* 同步成功：将本地时间写回 RTC（RTC 存本地时间，
+                 * clock_basetime 用 timegm 当 UTC 读入，watch_main
+                 * 启动时减去 tz_offset 修正为真正 UTC）。
                  */
-                struct tm utc_tm;
-                gmtime_r(&ts.tv_sec, &utc_tm);
+                struct tm local_tm;
+                localtime_r(&ts.tv_sec, &local_tm);
                 int fd = open("/dev/rtc0", O_RDWR);
                 if (fd >= 0) {
                     struct rtc_time rtctime;
                     memset(&rtctime, 0, sizeof(rtctime));
-                    rtctime.tm_sec   = utc_tm.tm_sec;
-                    rtctime.tm_min   = utc_tm.tm_min;
-                    rtctime.tm_hour  = utc_tm.tm_hour;
-                    rtctime.tm_mday  = utc_tm.tm_mday;
-                    rtctime.tm_mon   = utc_tm.tm_mon;
-                    rtctime.tm_year  = utc_tm.tm_year;
-                    rtctime.tm_wday  = utc_tm.tm_wday;
+                    rtctime.tm_sec   = local_tm.tm_sec;
+                    rtctime.tm_min   = local_tm.tm_min;
+                    rtctime.tm_hour  = local_tm.tm_hour;
+                    rtctime.tm_mday  = local_tm.tm_mday;
+                    rtctime.tm_mon   = local_tm.tm_mon;
+                    rtctime.tm_year  = local_tm.tm_year;
+                    rtctime.tm_wday  = local_tm.tm_wday;
                     int rtc_ret = ioctl(fd, RTC_SET_TIME,
                                         (unsigned long)&rtctime);
                     close(fd);

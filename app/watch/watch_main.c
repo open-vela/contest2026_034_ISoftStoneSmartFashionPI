@@ -24,7 +24,10 @@
 
 #include <nuttx/config.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
 #include <unistd.h>
+#include <sys/time.h>
 
 #include <lvgl/lvgl.h>
 
@@ -52,6 +55,43 @@ int main(int argc, FAR char *argv[])
 {
     lv_nuttx_dsc_t info;
     lv_nuttx_result_t result;
+
+    /* 显式设置东八区时区，确保本进程的 mktime()/localtime() 按 CST-8 处理。
+     * 板级 bringup 虽设置了 TZ，但本应用进程未必继承；若不设置，
+     * 手动修改时间时 mktime() 会把本地时间当作 UTC 写入系统时钟，
+     * localtime() 再 +8 显示，导致时间快 8 小时。
+     */
+#ifdef CONFIG_LIBC_LOCALTIME
+    setenv("TZ", "CST-8", 1);
+    tzset();
+
+    /* 启动时修正 CLOCK_REALTIME：RTC 存的是本地时间（broken-down），
+     * clock_basetime 用 timegm() 把它当 UTC 读入 CLOCK_REALTIME，导致
+     * CLOCK_REALTIME 比真正 UTC 快 tz_offset 秒。这里减去 tz_offset
+     * 修正为真正 UTC，localtime() 再 +8 显示即正确。
+     */
+    {
+        struct timeval tv;
+        if (gettimeofday(&tv, NULL) == 0)
+        {
+            time_t tprobe = 0;
+            struct tm lt_probe, gt_probe;
+            localtime_r(&tprobe, &lt_probe);
+            gmtime_r(&tprobe, &gt_probe);
+            long tz_offset = (lt_probe.tm_hour - gt_probe.tm_hour) * 3600L +
+                             (lt_probe.tm_min  - gt_probe.tm_min)  * 60L +
+                             (lt_probe.tm_sec  - gt_probe.tm_sec);
+            while (tz_offset > 43200)  tz_offset -= 86400;
+            while (tz_offset < -43200) tz_offset += 86400;
+
+            if (tz_offset != 0)
+            {
+                tv.tv_sec -= tz_offset;
+                settimeofday(&tv, NULL);
+            }
+        }
+    }
+#endif
 
     if (lv_is_initialized())
     {
