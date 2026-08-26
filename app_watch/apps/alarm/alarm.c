@@ -827,7 +827,7 @@ static void alarm_ring_create(int index)
     lv_obj_set_style_border_width(snooze_btn, 0, LV_STATE_DEFAULT);
     lv_obj_set_style_radius(snooze_btn, 32, LV_STATE_DEFAULT);
     lv_obj_set_style_shadow_width(snooze_btn, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_align(snooze_btn, LV_ALIGN_TOP_LEFT, 35, 363);
+    lv_obj_align(snooze_btn, LV_ALIGN_TOP_LEFT, 20, 340);
     lv_obj_t *snooze_btn_label = lv_label_create(snooze_btn);
     lv_label_set_text(snooze_btn_label, "延后5分钟");
     lv_obj_set_style_text_font(snooze_btn_label, vw_resource_get_font(WATCH_REGULAR_FONT "_32"), 0);
@@ -847,7 +847,7 @@ static void alarm_ring_create(int index)
     lv_obj_set_style_border_width(close_btn, 0, LV_STATE_DEFAULT);
     lv_obj_set_style_radius(close_btn, 32, LV_STATE_DEFAULT);
     lv_obj_set_style_shadow_width(close_btn, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_align(close_btn, LV_ALIGN_TOP_LEFT, 265, 363);
+    lv_obj_align(close_btn, LV_ALIGN_TOP_LEFT, 245, 340);
     lv_obj_t *close_btn_label = lv_label_create(close_btn);
     lv_label_set_text(close_btn_label, "关闭");
     lv_obj_set_style_text_font(close_btn_label, vw_resource_get_font(WATCH_REGULAR_FONT "_32"), 0);
