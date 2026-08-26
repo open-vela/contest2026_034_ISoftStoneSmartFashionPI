@@ -1048,6 +1048,14 @@ static void *wifi_reconnect_thread(void *arg)
                     if (rtc_ret >= 0) {
                         syslog(LOG_INFO,
                                "[WiFi] NTP time written to RTC\n");
+                        /* RTC_SET_TIME 可能同时更新了 CLOCK_REALTIME
+                         * （把本地时间当 UTC 写入），导致 localtime 再 +8
+                         * 快 8 小时。恢复 CLOCK_REALTIME 为 NTP 同步的
+                         * 正确 UTC 时间。 */
+                        struct timeval tv_restore;
+                        tv_restore.tv_sec  = ts.tv_sec;
+                        tv_restore.tv_usec = ts.tv_nsec / 1000;
+                        settimeofday(&tv_restore, NULL);
                     } else {
                         syslog(LOG_WARNING,
                                "[WiFi] Failed to write RTC time, errno=%d\n",
