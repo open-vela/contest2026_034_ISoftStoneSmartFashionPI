@@ -723,7 +723,7 @@ static void sport_running_create(int sport_type)
     if (setting_type == SETTING_TARGET_TIME) {
         // 目标时间模式：顶部显示距离
         lv_label_set_text(top_title_label, "距离");
-        lv_label_set_text(top_label, "0.0KM");
+        lv_label_set_text(top_label, "0.0km");
         lv_img_set_src(top_img, vw_resource_get_img("icon_sport_distance"));
     } else {
         // 目标步数/距离模式：顶部显示用时
@@ -734,7 +734,7 @@ static void sport_running_create(int sport_type)
 
     lv_obj_set_style_text_font(top_title_label, vw_resource_get_font(WATCH_REGULAR_FONT "_24"), 0);
     lv_obj_set_style_text_color(top_title_label, lv_color_white(), 0);
-    lv_obj_align(top_title_label, LV_ALIGN_TOP_MID, 20, 31);
+    lv_obj_align(top_title_label, LV_ALIGN_TOP_MID, 15, 31);
 
     lv_obj_set_style_text_font(top_label, vw_resource_get_font(WATCH_REGULAR_FONT "_32"), 0);
     lv_obj_set_style_text_color(top_label, lv_color_white(), 0);
@@ -782,8 +782,8 @@ static void sport_running_create(int sport_type)
     } else if (setting_type == SETTING_TARGET_DISTANCE) {
         // 目标距离模式：显示距离
         lv_label_set_text(arc_title_label, "距离");
-        lv_label_set_text(arc_value_label, "0.0KM");
-        lv_label_set_text_fmt(target_label, "/%.1fKM", settings->target_distance * 0.5f);
+        lv_label_set_text(arc_value_label, "0m");
+        lv_label_set_text_fmt(target_label, "/%.1fkm", settings->target_distance * 0.5f);
     } else if (setting_type == SETTING_TARGET_TIME) {
         // 目标时间模式：显示分钟
         lv_label_set_text(arc_title_label, "分钟");
@@ -813,7 +813,7 @@ static void sport_running_create(int sport_type)
         // 目标步数模式：左侧显示距离
         lv_img_set_src(left_img, vw_resource_get_img("icon_sport_distance"));
         lv_label_set_text(left_title_label, "距离");
-        lv_label_set_text(left_label, "0.0KM");
+        lv_label_set_text(left_label, "0m");
     } else {
         // 目标距离/时间模式：左侧显示步数
         lv_img_set_src(left_img, vw_resource_get_img("icon_sport_steps"));
@@ -824,30 +824,30 @@ static void sport_running_create(int sport_type)
     // lv_obj_set_pos(left_img, 71, 385);
     lv_obj_set_style_text_font(left_title_label, vw_resource_get_font(WATCH_REGULAR_FONT "_24"), 0);
     lv_obj_set_style_text_color(left_title_label, lv_color_white(), 0);
-    lv_obj_set_pos(left_title_label, 101, 379);
+    lv_obj_set_pos(left_title_label, 100, 370);
     lv_obj_set_style_text_font(left_label, vw_resource_get_font(WATCH_REGULAR_FONT "_32"), 0);
     lv_obj_set_style_text_color(left_label, lv_color_white(), 0);
-    lv_obj_set_pos(left_label, 60, 416);
+    lv_obj_set_pos(left_label, 90, 410);
     lv_obj_align_to(left_img, left_title_label, LV_ALIGN_OUT_LEFT_MID, -6, 0);
 
     // 右侧速度显示（固定）
     lv_obj_t *speed_img = lv_img_create(sport_running_base);
     lv_img_set_src(speed_img, vw_resource_get_img("icon_sport_speed"));
-    // lv_obj_set_pos(speed_img, 266, 384);
+    //lv_obj_set_pos(speed_img, 240, 379);
 
     lv_obj_t *speed_title_label = lv_label_create(sport_running_base);
     lv_label_set_text(speed_title_label, "速度");
     lv_obj_set_style_text_font(speed_title_label, vw_resource_get_font(WATCH_REGULAR_FONT "_24"), 0);
     lv_obj_set_style_text_color(speed_title_label, lv_color_white(), 0);
-    lv_obj_set_pos(speed_title_label, 299, 379);
+    lv_obj_set_pos(speed_title_label, 250, 370);
     lv_obj_align_to(speed_img, speed_title_label, LV_ALIGN_OUT_LEFT_MID, -6, 0);
 
     lv_obj_t *speed_label = lv_label_create(sport_running_base);
-    lv_label_set_text(speed_label, "0米/秒");
+    lv_label_set_text(speed_label, "0.0km/h");
     lv_obj_set_style_text_font(speed_label, vw_resource_get_font(WATCH_REGULAR_FONT "_32"), 0);
     lv_obj_set_style_text_color(speed_label, lv_color_white(), 0);
-    lv_obj_align(speed_label, LV_ALIGN_BOTTOM_RIGHT, -5, -5);
-    // lv_obj_set_pos(speed_label, 268, 416);
+    lv_obj_set_pos(speed_label, 210, 410);
+    //lv_obj_align(speed_label, LV_ALIGN_BOTTOM_RIGHT, -20, -54);
 
     // 重置运动数据
     sport_data.current_time = 0;
@@ -1139,14 +1139,14 @@ static void format_distance(char *buf, int buf_size, float distance_m)
     if (distance_m < 1000.0f) {
         snprintf(buf, buf_size, "%dm", (int)distance_m);
     } else {
-        snprintf(buf, buf_size, "%.1fKM", distance_m / 1000.0f);
+        snprintf(buf, buf_size, "%.1fkm", distance_m / 1000.0f);
     }
 }
 
 static void format_speed(char *buf, int buf_size, float speed_m_per_s)
 {
     float km_per_h = speed_m_per_s * 3.6f;
-    snprintf(buf, buf_size, "%.1fKM/H", km_per_h);
+    snprintf(buf, buf_size, "%.1fkm/h", km_per_h);
 }
 
 /**
@@ -1679,21 +1679,21 @@ static void sport_end_page_create(void)
     lv_label_set_text_fmt(time_value_label, "%d", minutes);
     lv_obj_set_style_text_font(time_value_label, vw_resource_get_font(WATCH_REGULAR_FONT "_64"), 0);
     lv_obj_set_style_text_color(time_value_label, lv_color_white(), 0);
-    lv_obj_align(time_value_label, LV_ALIGN_TOP_MID, 0, 156);
+    lv_obj_align(time_value_label, LV_ALIGN_TOP_MID, 0, 150);
 
     // 创建"分钟"文字
     lv_obj_t *time_unit_label = lv_label_create(sport_end_base);
     lv_label_set_text(time_unit_label, "分钟");
-    lv_obj_set_style_text_font(time_unit_label, vw_resource_get_font(WATCH_REGULAR_FONT "_20"), 0);
+    lv_obj_set_style_text_font(time_unit_label, vw_resource_get_font(WATCH_REGULAR_FONT "_24"), 0);
     lv_obj_set_style_text_color(time_unit_label, lv_color_white(), 0);
-    lv_obj_align(time_unit_label, LV_ALIGN_TOP_MID, 0, 238);
+    lv_obj_align(time_unit_label, LV_ALIGN_TOP_MID, 0, 230);
     
     // 创建"距离"文字
     lv_obj_t *distance_title_label = lv_label_create(sport_end_base);
     lv_label_set_text(distance_title_label, "距离");
     lv_obj_set_style_text_font(distance_title_label, vw_resource_get_font(WATCH_REGULAR_FONT "_24"), 0);
     lv_obj_set_style_text_color(distance_title_label, lv_color_white(), 0);
-    lv_obj_set_pos(distance_title_label, 131, 305);
+    lv_obj_set_pos(distance_title_label, 131, 290);
 
     // 创建距离图标
     lv_obj_t *distance_icon = lv_img_create(sport_end_base);
@@ -1707,7 +1707,7 @@ static void sport_end_page_create(void)
     lv_label_set_text(distance_value_label, end_dist_str);
     lv_obj_set_style_text_font(distance_value_label, vw_resource_get_font(WATCH_REGULAR_FONT "_36"), 0);
     lv_obj_set_style_text_color(distance_value_label, lv_color_white(), 0);
-    lv_obj_set_pos(distance_value_label, 197, 297);
+    lv_obj_set_pos(distance_value_label, 197, 285);
 
 
     // 创建"步数"文字
@@ -1715,7 +1715,7 @@ static void sport_end_page_create(void)
     lv_label_set_text(steps_title_label, "步数");
     lv_obj_set_style_text_font(steps_title_label, vw_resource_get_font(WATCH_REGULAR_FONT "_24"), 0);
     lv_obj_set_style_text_color(steps_title_label, lv_color_white(), 0);
-    lv_obj_set_pos(steps_title_label, 132, 360);
+    lv_obj_set_pos(steps_title_label, 132, 350);
 
     // 创建步数图标
     lv_obj_t *steps_icon = lv_img_create(sport_end_base);
@@ -1727,14 +1727,14 @@ static void sport_end_page_create(void)
     lv_label_set_text_fmt(steps_value_label, "%d", sport_data.current_steps);
     lv_obj_set_style_text_font(steps_value_label, vw_resource_get_font(WATCH_REGULAR_FONT "_36"), 0);
     lv_obj_set_style_text_color(steps_value_label, lv_color_white(), 0);
-    lv_obj_set_pos(steps_value_label, 198, 352);
+    lv_obj_set_pos(steps_value_label, 198, 345);
 
     // 创建"速度"文字
     lv_obj_t *speed_title_label = lv_label_create(sport_end_base);
     lv_label_set_text(speed_title_label, "速度");
     lv_obj_set_style_text_font(speed_title_label, vw_resource_get_font(WATCH_REGULAR_FONT "_24"), 0);
     lv_obj_set_style_text_color(speed_title_label, lv_color_white(), 0);
-    lv_obj_set_pos(speed_title_label, 131, 418);
+    lv_obj_set_pos(speed_title_label, 131, 410);
 
     // 创建速度图标
     lv_obj_t *speed_icon = lv_img_create(sport_end_base);
@@ -1748,7 +1748,7 @@ static void sport_end_page_create(void)
     lv_label_set_text(speed_value_label, end_speed_str);
     lv_obj_set_style_text_font(speed_value_label, vw_resource_get_font(WATCH_REGULAR_FONT "_36"), 0);
     lv_obj_set_style_text_color(speed_value_label, lv_color_white(), 0);
-    lv_obj_set_pos(speed_value_label, 200, 410);
+    lv_obj_set_pos(speed_value_label, 200, 405);
 
     // 添加滑动手势处理
     lv_obj_add_event_cb(sport_end_base, slide_gesture_sport_end_handler, LV_EVENT_ALL, NULL);
