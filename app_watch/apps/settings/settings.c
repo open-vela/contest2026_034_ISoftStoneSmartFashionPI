@@ -50,7 +50,7 @@ static void settings_app_create(void)
     lv_obj_add_style(settings_base, &style_base,0);
     lv_obj_clear_flag(settings_base, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_size(settings_base, WATCH_SCREEN_WIDTH, WATCH_SCREEN_HEIGHT);
-    lv_obj_align(settings_base,LV_ALIGN_CENTER, 0, 20);
+    lv_obj_align(settings_base,LV_ALIGN_CENTER, 0, 0);
     // lv_obj_set_scroll_dir(settings_base, LV_DIR_HOR);
 
 	lv_obj_t *list = lv_list_create(settings_base);
@@ -65,6 +65,8 @@ static void settings_app_create(void)
     lv_obj_align(list, LV_ALIGN_CENTER, 0, 0);
     lv_obj_set_scrollbar_mode(list, LV_SCROLLBAR_MODE_OFF);
     lv_obj_set_scroll_dir(list, LV_DIR_VER);
+    lv_obj_clear_flag(list, LV_OBJ_FLAG_SCROLL_ELASTIC);
+    lv_obj_set_style_pad_all(list, 0, 0);
     
     /* 禁用滚动边界效果，避免灰色影印 */
     lv_obj_set_scroll_snap_x(list, LV_SCROLL_SNAP_NONE);
