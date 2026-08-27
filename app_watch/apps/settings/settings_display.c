@@ -493,3 +493,19 @@ static void slide_gesture_handler(lv_event_t *e)
             break;
     }
 }
+
+void display_refresh_brightness_ui(void)
+{
+    if (!display_base || !brightness_indicator || !brightness_container) return;
+
+    int new_level = esp32s3_get_brightness();
+    if (new_level < 0 || new_level > 4) new_level = 2;
+
+    if (new_level != current_level) {
+        current_level = new_level;
+        int container_width = lv_obj_get_width(brightness_container);
+        lv_obj_set_width(brightness_indicator, container_width * (current_level + 1) / 5);
+        lv_obj_align(brightness_indicator, LV_ALIGN_LEFT_MID, 0, 0);
+        DISPLAY_LOG("Brightness UI synced to level %d", new_level);
+    }
+}

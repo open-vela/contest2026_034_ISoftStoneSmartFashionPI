@@ -201,3 +201,25 @@ void settings_volume_ring_event_cb(lv_event_t *e)
     }
 }
 
+void volume_ring_refresh_ui(void)
+{
+    if (!volume_set_base || !volume_indicator || !volume_container) return;
+
+    extern int watch_volume_get_percent(void);
+    int pct = watch_volume_get_percent();
+    if (pct < 0) return;
+    if (pct > 100) pct = 100;
+
+    int container_width = lv_obj_get_width(volume_container);
+    int new_width = container_width * pct / 100;
+    int current_width = lv_obj_get_width(volume_indicator);
+
+    if (new_width != current_width) {
+        current_volume_level = (pct + 10) / 20;
+        if (current_volume_level > 4) current_volume_level = 4;
+        lv_obj_set_width(volume_indicator, new_width);
+        lv_obj_align(volume_indicator, LV_ALIGN_LEFT_MID, 0, 0);
+        VOLUME_LOG("UI synced to %d%% (width=%d)", pct, new_width);
+    }
+}
+
