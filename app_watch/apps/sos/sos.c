@@ -81,7 +81,7 @@ static void sos_app_create(void)
     lv_obj_set_style_bg_color(help_btn, lv_color_hex(0xC83A5B), LV_STATE_DEFAULT);
     lv_obj_set_style_shadow_width(help_btn, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_radius(help_btn, 32, LV_STATE_DEFAULT);
-    lv_obj_align(help_btn, LV_ALIGN_TOP_LEFT, 35, 97);
+    lv_obj_align(help_btn, LV_ALIGN_TOP_LEFT, 20, 97);
     lv_obj_clear_flag(help_btn, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_add_flag(help_btn, LV_OBJ_FLAG_EVENT_BUBBLE);
     
@@ -106,7 +106,7 @@ static void sos_app_create(void)
     lv_obj_set_style_bg_opa(ignore_btn, LV_OPA_10, LV_STATE_DEFAULT);
     lv_obj_set_style_shadow_width(ignore_btn, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_radius(ignore_btn, 32, LV_STATE_DEFAULT);
-    lv_obj_align(ignore_btn, LV_ALIGN_TOP_LEFT, 210, 97);
+    lv_obj_align(ignore_btn, LV_ALIGN_TOP_LEFT, 195, 97);
     lv_obj_clear_flag(ignore_btn, LV_OBJ_FLAG_GESTURE_BUBBLE);
     lv_obj_add_flag(ignore_btn, LV_OBJ_FLAG_EVENT_BUBBLE);
     
