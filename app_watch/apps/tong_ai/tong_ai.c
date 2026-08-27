@@ -19,6 +19,7 @@
 #include "../settings/settings_wifi.h"
 #include "../home_control/home_control.h"
 #include "../../resource/resource.h"
+#include "../../../../app/watch/apps/common/ui_mode_manager.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -529,10 +530,16 @@ static void volc_event_callback(volc_callback_type_t type, const char *data)
              * HOME_CTRL_NONE: 无关指令，继续UI模式切换检测 */
 
             int matched = 0;
+            ui_mode_t switch_target = UI_MODE_EXPRESSION;
             /* 策略1: 完整短语匹配（含发音变体） */
             if (strstr_any(data, VAR_CHAOWAN) ||
                 strstr_any(data, VAR_BIAOQING)) {
                 matched = 1;
+                switch_target = UI_MODE_EXPRESSION;
+            } else if (strstr_any(data, VAR_BIOPAN)) {
+                /* "表盘"等变体 → 切换到手表模式 */
+                matched = 1;
+                switch_target = UI_MODE_WATCH;
             }
             /* 策略2: 动作词+目标词变体组合匹配 */
             if (!matched) {
@@ -541,20 +548,27 @@ static void volc_event_callback(volc_callback_type_t type, const char *data)
                     strstr(data, "进入") ||
                     strstr(data, "回到") ||
                     strstr(data, "返回"));
-                int has_target = (strstr_any(data, VAR_CHAOWAN) ||
-                    strstr_any(data, VAR_BIAOQING) ||
-                    strstr_any(data, VAR_BIOPAN));
-                if (has_action && has_target) matched = 1;
+                if (has_action) {
+                    if (strstr_any(data, VAR_CHAOWAN) ||
+                        strstr_any(data, VAR_BIAOQING)) {
+                        matched = 1;
+                        switch_target = UI_MODE_EXPRESSION;
+                    } else if (strstr_any(data, VAR_BIOPAN)) {
+                        matched = 1;
+                        switch_target = UI_MODE_WATCH;
+                    }
+                }
             }
             if (matched) {
-                syslog(LOG_INFO, "[TONG] UI mode switch triggered: %s\n", data);
-                FILE *fp = fopen("/mnt/spif/ui_mode.json", "w");
-                if (fp) {
-                    fprintf(fp, "{\"ui_mode\":0}\n");
-                    fclose(fp);
-                }
-                axp2101_power_reset();
-                /* 不会到达这里 */
+                syslog(LOG_INFO, "[TONG] UI mode switch triggered: %s (target=%d)\n",
+                       data, (int)switch_target);
+                int ret = ui_mode_switch_runtime(switch_target, lv_scr_act());
+                if (ret != 0)
+                    syslog(LOG_INFO, "[TONG] Failed to switch UI mode: %d\n", ret);
+                else
+                    syslog(LOG_INFO, "[TONG] UI mode switched (runtime, target=%d)\n",
+                           (int)switch_target);
+                return;  /* 切换后不再处理本条文本 */
             }
 
             /* 音量本地调节——静默执行硬件操作，不抑制TTS */
@@ -595,8 +609,10 @@ static void volc_timer_cb(lv_timer_t *timer)
         case VOLC_UI_ERROR:        ui_state = TONG_STATE_ERROR; break;
         default:                   ui_state = TONG_STATE_IDLE; break;
         }
-        if (g_pending_volc_state == VOLC_UI_CONNECTED)
-            g_reconnect_count = 0;  /* 会话健康，重置自动重连计数 */
+        if (g_pending_volc_state == VOLC_UI_LISTENING ||
+            g_pending_volc_state == VOLC_UI_THINKING ||
+            g_pending_volc_state == VOLC_UI_SPEAKING)
+            g_reconnect_count = 0;  /* 会话真正工作过（服务端回了ASR/TTS）才重置重连计数 */
         tong_update_ui_state(ui_state, NULL);
     }
 

@@ -9,6 +9,10 @@
 
 #define VOLUME_LOG(fmt, ...) syslog(LOG_INFO, "[VOLUME] " fmt, ##__VA_ARGS__)
 
+/* 走 volume_control 统一入口：设置硬件音量的同时持久化到
+ * /mnt/spif/volume.json，重启后由 watch_volume_restore() 恢复 */
+extern int watch_volume_set_value(int value);
+
 /* UI对象 */
 static lv_obj_t* volume_set_base = NULL;
 static lv_obj_t *volume_container = NULL;
@@ -141,7 +145,7 @@ static void volume_bar_event_cb(lv_event_t *e)
             }
 
             int vol_value = volume_level_to_value(current_volume_level);
-            esp32s3_watch_audio_setvolume(vol_value);
+            watch_volume_set_value(vol_value);
 
             VOLUME_LOG("Set volume to level %d, value %d", current_volume_level, vol_value);
         }

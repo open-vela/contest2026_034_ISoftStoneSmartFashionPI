@@ -181,8 +181,9 @@ ui_mode_t ui_mode_get_current(void)
  * 清理当前 UI 资源，初始化目标 UI。切换完成后写入持久化配置，
  * 保证下次开机仍进入该模式。
  *
- * 注意：ai_agent 语音任务在两种模式间切换时不会停止/重启，
- * 这是当前实现的已知限制，后续可通过 voice_channel 增加暂停/恢复接口优化。
+ * 注意：手表模式启动时跳过了 ai_agent（launcher.c agent_autostart 仅表情模式启动），
+ * 运行时切换到表情模式后，由 launcher_start_voice_for_expression() 补齐
+ * ai_agent 拉起 + 唤醒词监听，否则不进 listen 状态。
  */
 int ui_mode_switch_runtime(ui_mode_t target, lv_obj_t *parent)
 {
@@ -206,6 +207,13 @@ int ui_mode_switch_runtime(ui_mode_t target, lv_obj_t *parent)
 
   if (target == UI_MODE_WATCH)
     {
+      /* 潮玩 → 手表：先停止表情模式的后台任务（语音会话 / E2E 链路 /
+       * ai_agent），与冷启动进手表模式的行为对齐（手表模式不运行
+       * ai_agent，见 launcher.c agent_autostart）；切回表情模式时由
+       * launcher_start_voice_for_expression() 重新拉起 */
+      extern void launcher_stop_voice_for_watch(void);
+      launcher_stop_voice_for_watch();
+
       /* 潮玩 → 手表 */
       ret = watch_switch_to_watch_app(parent);
     }
@@ -221,6 +229,15 @@ int ui_mode_switch_runtime(ui_mode_t target, lv_obj_t *parent)
     {
       g_current_ui_mode = target;
       ui_mode_save(target);
+
+      /* 切到表情模式后，启动 ai_agent + 唤醒词监听
+       * 手表模式启动时跳过了 ai_agent（见 launcher.c agent_autostart），
+       * 运行时切换到表情需在此补齐，否则不进 listen 状态 */
+      if (target == UI_MODE_EXPRESSION)
+        {
+          extern void launcher_start_voice_for_expression(void);
+          launcher_start_voice_for_expression();
+        }
     }
 
   return ret;
