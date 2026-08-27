@@ -65,7 +65,7 @@ static void alarm_sound_stop(void)
 
 
 // 闹钟数据文件路径
-#define ALARM_DATA_FILE "/mnt/sd/alarm.dat"
+#define ALARM_DATA_FILE "/mnt/spif/alarm.dat"
 
 // 全局变量
 static lv_obj_t *alarm_list_base = NULL;
@@ -207,6 +207,7 @@ static void alarm_switch_event_cb(lv_event_t *e)
     if (index >= 0 && index < alarm_count) {
         alarms[index].enabled = lv_obj_has_state(switch_obj, LV_STATE_CHECKED);
         ALARM_LOG("Alarm %d: %s", index, alarms[index].enabled ? "enabled" : "disabled");
+        alarm_save_to_file();
     }
 }
 
@@ -1222,6 +1223,7 @@ void alarm_save_to_file(void)
         ALARM_LOG("Saved %d alarms to file", alarm_count);
     }
 
+    fsync(fd);
     close(fd);
 }
 

@@ -25,6 +25,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <pthread.h>
 #include <netutils/netlib.h>
 
 
@@ -61,6 +62,34 @@ typedef struct {
 static home_device_t devices[DEVICE_COUNT];
 static bool devices_initialized = false;
 
+#define HC_STATUS_FILE "/mnt/spif/home_control_status.dat"
+
+static void hc_save_status(void)
+{
+    int fd = open(HC_STATUS_FILE, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd < 0) return;
+    bool status[DEVICE_COUNT];
+    for (int i = 0; i < DEVICE_COUNT; i++)
+        status[i] = devices[i].status;
+    write(fd, status, sizeof(status));
+    fsync(fd);
+    close(fd);
+}
+
+static void hc_load_status(void)
+{
+    int fd = open(HC_STATUS_FILE, O_RDONLY);
+    if (fd < 0) return;
+    bool status[DEVICE_COUNT];
+    ssize_t ret = read(fd, status, sizeof(status));
+    close(fd);
+    if (ret == sizeof(status)) {
+        for (int i = 0; i < DEVICE_COUNT; i++)
+            devices[i].status = status[i];
+        HC_LOG("Loaded device status from file");
+    }
+}
+
 /* 初始化设备列表 */
 static void init_devices(void)
 {
@@ -78,6 +107,8 @@ static void init_devices(void)
     devices[9] = (home_device_t){"卧室背景灯", vw_resource_get_img("icon_home_bedroom_backlight"), false, false, false};
     devices[10] = (home_device_t){"卫生间灯", vw_resource_get_img("icon_home_bathroom_light"), false, false, false};
     devices[11] = (home_device_t){"窗帘", vw_resource_get_img("icon_home_curtain"), false, true, false};
+
+    hc_load_status();
     
     devices_initialized = true;
 }
@@ -359,6 +390,9 @@ int home_control_voice_execute(const char *text)
         return HOME_CTRL_NET_FAIL;
     }
 
+    devices[dev_index].status = action ? true : false;
+    hc_save_status();
+
     return HOME_CTRL_OK;
 }
 
@@ -536,6 +570,37 @@ static void msg_box_timer_cb(lv_timer_t *timer)
     lv_timer_del(timer);
 }
 
+typedef struct {
+    int dev_index;
+    bool is_on;
+} switch_cmd_arg_t;
+
+static void *switch_cmd_thread(void *arg)
+{
+    switch_cmd_arg_t *a = (switch_cmd_arg_t *)arg;
+
+    if (!g_server_discovered) {
+        discover_server_info();
+    }
+    if (!g_server_discovered) {
+        HC_LOG("Server not discovered, cannot send command");
+        free(a);
+        return NULL;
+    }
+
+    int cmd;
+    if (devices[a->dev_index].has_sub_switch) {
+        cmd = a->is_on ? 23 : 24;
+    } else {
+        cmd = a->is_on ? (a->dev_index * 2 + 1) : (a->dev_index * 2 + 2);
+    }
+
+    HC_LOG("Sending command %d for device %s", cmd, devices[a->dev_index].name);
+    send_control_command(cmd);
+    free(a);
+    return NULL;
+}
+
 /**
  * 开关事件处理
  */
@@ -587,27 +652,31 @@ static void switch_event_handler(lv_event_t *e)
         
         device->status = is_on;
         HC_LOG("Device: %s, status: %s", device->name, is_on ? "ON" : "OFF");
-        
-        if (!g_server_discovered) {
-            HC_LOG("Server not discovered, discovering...");
-            discover_server_info();
-        }
-        
-        int cmd = is_on ? 1 : 2;
-        
-        if (device->has_sub_switch) {
-            cmd = is_on ? 23 : 24;  // 窗帘电源：上电23，关闭电源24
-        } else {
-            for (int i = 0; i < DEVICE_COUNT; i++) {
-                if (strcmp(device->name, devices[i].name) == 0) {
-                    cmd = is_on ? (i * 2 + 1) : (i * 2 + 2);
-                    break;
-                }
+        hc_save_status();
+
+        int dev_idx = -1;
+        for (int i = 0; i < DEVICE_COUNT; i++) {
+            if (strcmp(device->name, devices[i].name) == 0) {
+                dev_idx = i;
+                break;
             }
         }
-        
-        HC_LOG("Sending command %d for device %s", cmd, device->name);
-        send_control_command(cmd);
+        if (dev_idx >= 0) {
+            switch_cmd_arg_t *arg = malloc(sizeof(switch_cmd_arg_t));
+            if (arg) {
+                arg->dev_index = dev_idx;
+                arg->is_on = is_on;
+                pthread_t tid;
+                pthread_attr_t attr;
+                pthread_attr_init(&attr);
+                pthread_attr_setstacksize(&attr, 4096);
+                if (pthread_create(&tid, &attr, switch_cmd_thread, arg) != 0) {
+                    free(arg);
+                }
+                pthread_attr_destroy(&attr);
+                pthread_detach(tid);
+            }
+        }
     }
 }
 
