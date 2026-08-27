@@ -135,7 +135,7 @@ static void goto_next_state(void)
         lv_task_handler();
         alarm_service_init();
         pm_stay(PM_IDLE_DOMAIN, PM_NORMAL);
-        display_set_timeout(10);
+        display_set_timeout(60);
         ft3168_display_timeout_setup();
         LAUNCHER_LOG("dial init complete: %p", current_obj);
 
