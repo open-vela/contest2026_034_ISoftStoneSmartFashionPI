@@ -64,6 +64,16 @@ int watch_volume_set_value(int value);
 int watch_volume_step_up(void);
 int watch_volume_step_down(void);
 
+/**
+ * @brief 开机恢复持久化音量
+ *
+ * 读取 /mnt/spif/volume.json 并写回硬件（由 launcher 在开机时调用）。
+ * 文件不存在或内容非法时保持板级默认音量。
+ *
+ * @return 0 成功恢复，负值无保存值或硬件未配置
+ */
+int watch_volume_restore(void);
+
 #ifdef __cplusplus
 }
 #endif

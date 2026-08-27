@@ -33,6 +33,8 @@
 #include <sys/stat.h>
 #include <nuttx/audio/audio.h>
 #include <system/nxplayer.h>
+#include <lvgl.h>
+#include "../../../../app/watch/apps/common/ui_mode_manager.h"
 #include <nuttx/power/axp2101.h>
 #include "../home_control/home_control.h"
 
@@ -763,64 +765,22 @@ static int send_start_session(tls_ctx_t *ctx, const char *session_id,
     cJSON *root = cJSON_CreateObject();
     if (!root) return -ENOMEM;
 
-    /* 构建 speaking_style：基础约束 + 上一轮智能家居失败约束 */
-    char style[2048];
-    int style_len = snprintf(style, sizeof(style),
-        "你的每次回复严格控制在30-40个字以内，不能超过40个字，必须简短精炼。"
-        "用口语化的方式回复，像真正的朋友聊天一样自然，不要用书面语。"
-        "不说'让我查一下'，不推销自己、不描述功能。"
-        "可以适当加一两个表情符号让对话更活泼。"
-        "不要说'有什么可以帮你的'之类的客套话，直接回应小朋友说的话。"
-        "遇到小朋友分享开心的事要一起开心，遇到难过的事要安慰鼓励。"
-        "特别注意：如果用户说出'切换模式'、'潮玩模式'、'表情模式'、"
-        "'切换成潮玩'、'回到表盘'等切换UI相关的指令，"
-        "你只需要回复'好的'两个字，绝对不要多说任何话，也绝对不要编造切换结果。");
-
-    /* 检查上一轮智能家居是否失败，注入上下文约束 */
-    FILE *fp = fopen("/tmp/home_ctrl_netfail", "r");
-    if (fp) {
-        char dev_name[64] = {0};
-        fgets(dev_name, sizeof(dev_name), fp);
-        fclose(fp);
-        /* 去除换行符 */
-        dev_name[strcspn(dev_name, "\n")] = '\0';
-        if (dev_name[0]) {
-            style_len += snprintf(style + style_len, sizeof(style) - style_len,
-                "注意：上一轮用户尝试控制「%s」但智能家居网络连接失败，"
-                "如果用户提到控制结果请告知'网络连接失败，请检查智能家居WiFi'，"
-                "不要编造控制结果。", dev_name);
-        }
-        unlink("/tmp/home_ctrl_netfail");
-    } else {
-        fp = fopen("/tmp/home_ctrl_nomatch", "r");
-        if (fp) {
-            char user_text[256] = {0};
-            fgets(user_text, sizeof(user_text), fp);
-            fclose(fp);
-            user_text[strcspn(user_text, "\n")] = '\0';
-            if (user_text[0]) {
-                style_len += snprintf(style + style_len, sizeof(style) - style_len,
-                    "注意：上一轮用户说了一句智能家居指令但未匹配到支持的设备，"
-                    "如果用户提到此事请告知'抱歉，暂不支持该设备'，"
-                    "不要编造控制结果。");
-            }
-            unlink("/tmp/home_ctrl_nomatch");
-        }
-    }
-
-    /* 注入设备状态（电量/音量）约束，使服务器能给出准确回复 */
-    {
-        uint8_t bat = watch_battery_get_level();
+    /* 设备状态（电量/音量）注入到 system_role，使服务端能准确回答
+     * 电量/音量查询。之前把设备状态放进 ~1200 字节的 speaking_style
+     * 导致服务端静默不回包，这里只追加一小段到 system_role。 */
+    char system_role[512];
+    int role_len = snprintf(system_role, sizeof(system_role),
+        "你是小通，AI情绪能量潮玩，住在儿童智能手表里，屏幕会显示表情。"
+        "性格温柔耐心、偶尔小幽默。中文口语回复，不超过40字，不说让我查一下。"
+        "不推销自己、不描述功能。");
+    if (role_len > 0 && role_len < (int)sizeof(system_role) - 1) {
+        int bat = (int)watch_battery_get_level();
         int vol = watch_volume_get_percent();
         if (vol < 0) vol = 0;
-        style_len += snprintf(style + style_len, sizeof(style) - style_len,
+        snprintf(system_role + role_len, sizeof(system_role) - role_len,
             "当前设备状态：电量%d%%，音量%d%%。"
-            "如果用户询问电量或电池，请直接告知电量百分比。"
-            "如果用户询问音量大小，请直接告知音量百分比。"
-            "如果用户要求调大音量，请回复'好的，音量已调大'。"
-            "如果用户要求调小音量，请回复'好的，音量已调小'。"
-            "如果用户要求设置音量到指定值，请回复'好的，音量已调整'。"
-            "不要编造与实际设备状态不符的数值。"
+            "用户询问电量或音量时请如实告知百分比，不要编造；"
+            "用户要求调音量时回复'好的，音量已调整'。"
             "如果用户要求打开或关闭智能家居设备（电视、空调、地暖、新风、"
             "客厅氛围灯、客厅灯、电视背景灯、玄关灯、卧室灯、卧室背景灯、"
             "卫生间灯、窗帘等），请回复'好的，正在打开XXX'或'好的，正在关闭XXX'，"
@@ -836,11 +796,7 @@ static int send_start_session(tls_ctx_t *ctx, const char *session_id,
     /* 人设与表情模式(volc_e2e_conn.c E2E_SYSTEM_ROLE)同步，但名字用
      * 小通(与手表UI一致)，形态描述改为手表语境 */
     cJSON_AddStringToObject(dialog, "bot_name", "小通");
-    cJSON_AddStringToObject(dialog, "system_role",
-        "你是小通，AI情绪能量潮玩，住在儿童智能手表里，屏幕会显示表情。"
-        "性格温柔耐心、偶尔小幽默。中文口语回复，不超过40字，不说让我查一下。"
-        "不推销自己、不描述功能。");
-    cJSON_AddStringToObject(dialog, "speaking_style", style);
+    cJSON_AddStringToObject(dialog, "system_role", system_role);
     cJSON_AddStringToObject(dialog, "dialog_id", "");
 
     cJSON *extra = cJSON_AddObjectToObject(dialog, "extra");
@@ -853,6 +809,8 @@ static int send_start_session(tls_ctx_t *ctx, const char *session_id,
     cJSON_AddNumberToObject(tts_audio, "channel", VOLC_PLAYBACK_CHANNELS);
     cJSON_AddStringToObject(tts_audio, "format", "pcm_s16le");
     cJSON_AddNumberToObject(tts_audio, "sample_rate", VOLC_PLAYBACK_RATE);
+    /* 与 volc_e2e_conn.c 对齐：补齐 volume_ratio，避免音量不一致。 */
+    cJSON_AddNumberToObject(tts_audio, "volume_ratio", 2.0);
 
     cJSON *asr = cJSON_AddObjectToObject(root, "asr");
     cJSON *asr_audio = cJSON_AddObjectToObject(asr, "audio_info");
@@ -1289,7 +1247,7 @@ static void *recv_thread(void *arg)
         }
 
         if (opcode == WS_OPCODE_CLOSE) {
-            syslog(LOG_INFO, "[%s] server close\n", TAG);
+            syslog(LOG_INFO, "[%s] server closed connection\n", TAG);
             break;
         }
         if (opcode == WS_OPCODE_PING) {
@@ -1421,40 +1379,50 @@ static void *recv_thread(void *arg)
                                         /* 多策略关键词检测:
                                          * 策略1: 完整短语匹配(含发音变体) */
                                         int matched = 0;
+                                        ui_mode_t switch_target = UI_MODE_EXPRESSION;
                                         if (strstr_any(s_asr_buf, VAR_CHAOWAN) ||
                                             strstr_any(s_asr_buf, VAR_BIAOQING)) {
                                             matched = 1;
+                                            switch_target = UI_MODE_EXPRESSION;
+                                        } else if (strstr_any(s_asr_buf, VAR_BIOPAN)) {
+                                            /* "表盘"等变体 → 切换到手表模式 */
+                                            matched = 1;
+                                            switch_target = UI_MODE_WATCH;
                                         }
 
                                         /* 策略2: 动作词 + 目标词变体 组合匹配
                                          * (更鲁棒，容忍中间杂字和发音变体) */
                                         if (!matched) {
-                                            int has_action = 0, has_target = 0;
+                                            int has_action = 0;
                                             if (strstr(s_asr_buf, "切换") ||
                                                 strstr(s_asr_buf, "打开") ||
                                                 strstr(s_asr_buf, "进入") ||
                                                 strstr(s_asr_buf, "回到") ||
                                                 strstr(s_asr_buf, "返回"))
                                                 has_action = 1;
-                                            if (strstr_any(s_asr_buf, VAR_CHAOWAN) ||
-                                                strstr_any(s_asr_buf, VAR_BIAOQING) ||
-                                                strstr_any(s_asr_buf, VAR_BIOPAN))
-                                                has_target = 1;
-                                            if (has_action && has_target)
-                                                matched = 1;
+                                            if (has_action) {
+                                                if (strstr_any(s_asr_buf, VAR_CHAOWAN) ||
+                                                    strstr_any(s_asr_buf, VAR_BIAOQING)) {
+                                                    matched = 1;
+                                                    switch_target = UI_MODE_EXPRESSION;
+                                                } else if (strstr_any(s_asr_buf, VAR_BIOPAN)) {
+                                                    matched = 1;
+                                                    switch_target = UI_MODE_WATCH;
+                                                }
+                                            }
                                         }
 
                                         if (matched) {
                                             syslog(LOG_INFO,
-                                                "[%s] UI mode switch triggered: buf=\"%s\"\n",
-                                                TAG, s_asr_buf);
-                                            FILE *fp = fopen("/mnt/spif/ui_mode.json", "w");
-                                            if (fp) {
-                                                fprintf(fp, "{\"ui_mode\":0}\n");
-                                                fclose(fp);
-                                            }
-                                            axp2101_power_reset();
-                                            /* 不会到达这里 */
+                                                "[%s] UI mode switch triggered: buf=\"%s\" (target=%d)\n",
+                                                TAG, s_asr_buf, (int)switch_target);
+                                            int ret = ui_mode_switch_runtime(switch_target, lv_scr_act());
+                                            if (ret != 0)
+                                                syslog(LOG_INFO, "[%s] Failed to switch UI mode: %d\n", TAG, ret);
+                                            else
+                                                syslog(LOG_INFO, "[%s] UI mode switched (runtime, target=%d)\n",
+                                                       TAG, (int)switch_target);
+                                            return NULL;  /* 切换后不再处理本条文本 */
                                         }
                                         notify_ui(VOLC_CB_USER_TEXT, t);
                                     }
@@ -1538,6 +1506,8 @@ static void *recv_thread(void *arg)
             break;
 
         case EVENT_DIALOG_ERROR:
+            /* 服务端拒绝 StartSession 时发 DIALOG_ERROR(599)，解析 message
+             * 通知 UI，便于定位拒绝原因。 */
             if (plen > 0) {
                 char *json = strndup((const char *)payload, plen);
                 if (json) {
@@ -1554,7 +1524,8 @@ static void *recv_thread(void *arg)
             break;
 
         default:
-            syslog(LOG_DEBUG, "[%s] Unknown event: %u\n", TAG, event_id);
+            syslog(LOG_ERR, "[%s] Unknown event: %u (plen=%u)\n",
+                   TAG, event_id, (unsigned)plen);
             break;
         }
     }

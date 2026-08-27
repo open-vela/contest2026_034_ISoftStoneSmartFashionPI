@@ -36,6 +36,7 @@
 #include "../boot/watch_boot_animation.h"
 #include "../common/watch_pages.h"
 #include "../common/ui_mode_manager.h"
+#include "../volume_control/volume_control.h"
 #include "apps/settings/settings_wifi.h"  /* 使用手表UI的WiFi设置头文件 */
 #include "voice/voice_channel.h"
 
@@ -74,6 +75,9 @@ static lv_obj_t *current_obj = NULL;            /* 当前显示的对象 */
 static uint32_t anim_wait_ms = 0;               /* 动画已等待时间(ms) */
 static uint32_t logo_wait_ms = 0;               /* logo已等待时间(ms) */
 static ui_mode_t g_boot_ui_mode = UI_MODE_EXPRESSION; /* 本次开机的UI模式 */
+static int s_wake_attempts = 0;  /* deferred_wake_start_timer 重试计数(运行时切换后可重置) */
+static lv_timer_t *s_wake_timer = NULL;   /* deferred_wake_start 定时器句柄（停止语音时删除） */
+static bool g_agent_started = false;      /* ai_agent 任务已拉起（防重入，停止时重置） */
 
 /****************************************************************************
  * Private Functions
@@ -121,14 +125,13 @@ static void on_wake_detected(void)
  */
 static void agent_autostart(void)
 {
-  static bool started = false;   /* 防重入 */
   extern int ai_agent_main(int argc, char *argv[]);
 
-  if (started)
+  if (g_agent_started)
     {
       return;
     }
-  started = true;
+  g_agent_started = true;
 
   /* 注册唤醒词回调 + 空闲超时回调 + LVGL 轮询定时器 */
   voice_channel_set_wake_notify(on_wake_detected);
@@ -155,32 +158,102 @@ static void deferred_wake_start_timer_cb(lv_timer_t *timer)
 {
     extern bool voice_channel_is_ready(void);
     extern int voice_channel_start_wake(void);
-    static int attempts = 0;
 
     bool wifi_ok = settings_wifi_is_connected();
     bool voice_ok = voice_channel_is_ready();
 
     WATCH_DBG_LOG("[LAUNCHER] wake start check #%d: wifi=%d voice=%d",
-                  ++attempts, wifi_ok, voice_ok);
+                  ++s_wake_attempts, wifi_ok, voice_ok);
 
     if (wifi_ok && voice_ok) {
         WATCH_DBG_LOG("[LAUNCHER] both ready, starting wake-word listening");
         voice_channel_start_wake();
+        if (timer == s_wake_timer) {
+            s_wake_timer = NULL;
+        }
         lv_timer_del(timer);  /* stop this timer */
         return;
     }
 
     /* After 10s without WiFi (10 attempts × 1s), play no-network alert once */
-    if (attempts == 10) {
+    if (s_wake_attempts == 10) {
         tool_system_alert_play(16, 0);
     }
 
     /* Safety: give up after 180 attempts (180 seconds) */
-    if (attempts >= 180) {
+    if (s_wake_attempts >= 180) {
         WATCH_DBG_LOG("[LAUNCHER] wake start timeout, giving up (wifi=%d voice=%d)",
                       wifi_ok, voice_ok);
+        if (timer == s_wake_timer) {
+            s_wake_timer = NULL;
+        }
         lv_timer_del(timer);
     }
+}
+
+/**
+ * @brief 运行时切换到表情模式后，启动 ai_agent + 唤醒词监听
+ *
+ * 冷启动由 launcher 状态机负责；运行时切换（ui_mode_switch_runtime）
+ * 跳过了启动流程，需由本函数补齐：拉起 ai_agent + 创建 deferred_wake_start_timer。
+ * agent_autostart 内部有 static bool started 防重入，重复调用安全。
+ */
+void launcher_start_voice_for_expression(void)
+{
+  WATCH_DBG_LOG("[LAUNCHER] start voice for expression (runtime switch)");
+  agent_autostart();
+  s_wake_attempts = 0;
+  s_wake_timer = lv_timer_create(deferred_wake_start_timer_cb, 1000, NULL);
+}
+
+/**
+ * @brief 运行时切换到手表模式前，停止表情模式的后台任务
+ *
+ * 停止语音会话线程、断开 E2E 语音链路，并请求 ai_agent 任务退出
+ *（同步等待其 teardown 完成，避免切回表情模式时新旧实例并存）。
+ * 与冷启动进手表模式的行为对齐：手表模式不运行 ai_agent。
+ * 由 ui_mode_switch_runtime(UI_MODE_WATCH) 调用；再次切回表情模式时
+ * 由 launcher_start_voice_for_expression() 重新拉起。
+ */
+void launcher_stop_voice_for_watch(void)
+{
+  extern int voice_channel_stop(void);
+  extern void volc_e2e_stop(void);
+  extern void agent_request_shutdown(void);
+  extern bool agent_is_running(void);
+
+  WATCH_DBG_LOG("[LAUNCHER] stop voice+agent for watch (runtime switch)");
+
+  /* 取消延迟唤醒定时器，避免 agent 停止后又被它拉起唤醒监听 */
+  if (s_wake_timer != NULL)
+    {
+      lv_timer_del(s_wake_timer);
+      s_wake_timer = NULL;
+    }
+
+  /* 停语音会话线程：voice_channel_stop 内部 capture_close 解除
+   * read 阻塞并 join 会话线程；未运行时返回错误，忽略 */
+  voice_channel_stop();
+
+  /* 断开 E2E 语音链路（内部有锁，未建立时安全返回） */
+  volc_e2e_stop();
+
+  /* 请求 ai_agent 退出并同步等待 teardown（主循环 1s 轮询粒度，
+   *  teardown 含 500ms 的线程退出等待） */
+  agent_request_shutdown();
+  int wait_ms = 0;
+  while (agent_is_running() && wait_ms < 5000)
+    {
+      usleep(100 * 1000);
+      wait_ms += 100;
+    }
+  if (agent_is_running())
+    {
+      WATCH_DBG_LOG("[LAUNCHER] WARN: ai_agent teardown timeout");
+    }
+
+  /* 允许切回表情模式时重新拉起 */
+  g_agent_started = false;
 }
 
 /**
@@ -199,6 +272,10 @@ static void goto_next_state(void)
         ui_mode_set_current(g_boot_ui_mode);
         WATCH_DBG_LOG("[LAUNCHER] Boot UI mode: %d (0=expression, 1=watch)",
                       (int)g_boot_ui_mode);
+
+        /* 恢复上次持久化的音量（/mnt/spif/volume.json），
+         * 避免重启后回退到板级默认值 */
+        watch_volume_restore();
 
         if (current_obj != NULL)
           {
@@ -288,7 +365,7 @@ static void goto_next_state(void)
         /* 仅表情UI模式启动延迟唤醒定时器（手表UI不需要语音唤醒） */
         if (g_boot_ui_mode == UI_MODE_EXPRESSION)
           {
-            lv_timer_create(deferred_wake_start_timer_cb, 1000, NULL);
+            s_wake_timer = lv_timer_create(deferred_wake_start_timer_cb, 1000, NULL);
           }
 
         lv_task_handler();

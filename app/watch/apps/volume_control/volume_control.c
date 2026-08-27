@@ -32,11 +32,63 @@
 #define WATCH_VOLUME_HW_MIN      100   /* hardware value for 10% */
 #define WATCH_VOLUME_HW_MAX     1000   /* hardware value for 100% */
 
+/* 音量持久化 —— /mnt/spif/volume.json，格式: {"volume":<hw 0-1000>}
+ * 仿照 ui_mode_manager 的 JSON 持久化：板级 g_watch_volume 每次开机
+ * 都会重置为 Kconfig 默认值，需在此保存并在开机时恢复
+ *（watch_volume_restore，由 launcher 调用）。 */
+#define VOLUME_CONFIG_FILE  "/mnt/spif/volume.json"
+#define VOLUME_CONFIG_KEY   "\"volume\":"
+
 /****************************************************************************
  * Private Data
  ****************************************************************************/
 
 static const int s_volume_levels[5] = {0, 250, 500, 750, 1000};
+
+/****************************************************************************
+ * Private Functions — persistence
+ ****************************************************************************/
+
+/* 保存硬件音量值到 /mnt/spif/volume.json（{"volume":%d}） */
+static void watch_volume_save(int value)
+{
+  FILE *fp = fopen(VOLUME_CONFIG_FILE, "w");
+  if (fp == NULL)
+    {
+      return;
+    }
+  fprintf(fp, "{\"volume\":%d}\n", value);
+  fclose(fp);
+}
+
+/* 读取持久化的硬件音量值；文件不存在或内容非法时返回 -1 */
+static int watch_volume_load(void)
+{
+  char buf[64];
+  int value = -1;
+
+  FILE *fp = fopen(VOLUME_CONFIG_FILE, "r");
+  if (fp == NULL)
+    {
+      return -1;
+    }
+
+  if (fgets(buf, sizeof(buf), fp) != NULL)
+    {
+      char *key_pos = strstr(buf, VOLUME_CONFIG_KEY);
+      if (key_pos != NULL)
+        {
+          value = atoi(key_pos + strlen(VOLUME_CONFIG_KEY));
+        }
+    }
+  fclose(fp);
+
+  if (value < 0 || value > WATCH_VOLUME_HW_MAX)
+    {
+      value = -1;
+    }
+  return value;
+}
 
 /****************************************************************************
  * Public Functions — Percent API
@@ -181,9 +233,32 @@ int watch_volume_set_value(int value)
   if (value > 1000) value = 1000;
   int ret = esp32s3_watch_audio_setvolume((uint16_t)value);
   VOL_LOG("Set volume to %d (ret=%d)", value, ret);
+  if (ret == OK)
+    {
+      /* 持久化，重启后由 watch_volume_restore() 恢复 */
+      watch_volume_save(value);
+    }
   return (ret == OK) ? 0 : -1;
 #else
   VOL_LOG("Audio not configured, cannot set volume");
+  return -1;
+#endif
+}
+
+int watch_volume_restore(void)
+{
+#if defined(CONFIG_ESP32S3_I2S) && defined(CONFIG_AUDIO_ES8311)
+  int value = watch_volume_load();
+  if (value < 0)
+    {
+      /* 无保存值，保持板级默认音量 */
+      return -1;
+    }
+  /* 直接写硬件 + 板级缓存，不回写文件（值未变化） */
+  int ret = esp32s3_watch_audio_setvolume((uint16_t)value);
+  VOL_LOG("Restore volume to %d (ret=%d)", value, ret);
+  return (ret == OK) ? 0 : -1;
+#else
   return -1;
 #endif
 }
