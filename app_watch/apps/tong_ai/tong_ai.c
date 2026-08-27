@@ -29,11 +29,16 @@
 #include <errno.h>
 #include <stdbool.h>
 #include <nuttx/power/axp2101.h>
+#include <nuttx/lcd/co5300.h>
 
 /* ── 音量控制（本地硬件操作，不抑制TTS）────────────────── */
 extern int  watch_volume_set_percent(int percent);
 extern int  watch_volume_get_percent(void);
 extern int  watch_volume_step_delta(int delta);
+extern void volume_ring_refresh_ui(void);
+
+/* ── 亮度控制（本地硬件操作，不抑制TTS）────────────────── */
+extern void display_refresh_brightness_ui(void);
 
 /* 调试打印 — 统一使用 syslog 输出到 SD 卡 */
 #define TONG_LOG(fmt, ...) syslog(LOG_INFO, fmt, ##__VA_ARGS__)
@@ -70,6 +75,8 @@ static tong_ui_state_t g_tong_state = TONG_STATE_IDLE;
 #define PENDING_STATE        0x01
 #define PENDING_ERROR        0x02
 #define PENDING_DISCONNECTED 0x04
+#define PENDING_VOLUME_SYNC  0x08
+#define PENDING_BRIGHTNESS_SYNC 0x10
 
 static volatile uint8_t g_pending_flags = 0;
 static volc_ui_state_t g_pending_volc_state = VOLC_UI_IDLE;
@@ -427,6 +434,57 @@ static void try_volume_adjust(const char *text)
     }
 }
 
+/* ========== 亮度本地调节（静默执行，不抑制TTS）============ */
+
+static void try_brightness_adjust(const char *text)
+{
+    if (!text || !text[0]) return;
+
+    /* ── 亮度最亮/最暗 ── */
+    static const char * const bri_max_kw[] = {
+        "亮度最大", "亮度调到最大", "最亮", "调到最亮", "屏幕最亮",
+        "亮度调至最大", "屏幕调到最亮", NULL };
+    static const char * const bri_min_kw[] = {
+        "亮度最小", "亮度调到最小", "最暗", "调到最暗", "屏幕最暗",
+        "亮度调至最小", "屏幕调到最暗", NULL };
+    if (strstr_any(text, bri_max_kw)) {
+        esp32s3_set_brightness(4);
+        syslog(LOG_INFO, "[TONG] brightness max → level 4\n");
+        return;
+    }
+    if (strstr_any(text, bri_min_kw)) {
+        esp32s3_set_brightness(0);
+        syslog(LOG_INFO, "[TONG] brightness min → level 0\n");
+        return;
+    }
+
+    /* ── 亮度调亮 ── */
+    static const char * const bri_up_kw[] = {
+        "调亮", "亮一点", "太暗了", "亮度调高", "增加亮度",
+        "亮度大一点", "亮一些", "再亮一点", "屏幕调亮", "亮度提高",
+        "亮点", "太暗", "看不清屏幕", "屏幕太暗", "暗了", NULL };
+    if (strstr_any(text, bri_up_kw)) {
+        int level = esp32s3_get_brightness();
+        if (level < 4) level++;
+        esp32s3_set_brightness(level);
+        syslog(LOG_INFO, "[TONG] brightness up → level %d\n", level);
+        return;
+    }
+
+    /* ── 亮度调暗 ── */
+    static const char * const bri_down_kw[] = {
+        "调暗", "暗一点", "太亮了", "亮度调低", "降低亮度",
+        "亮度小一点", "暗一些", "再暗一点", "屏幕调暗", "亮度降低",
+        "暗点", "太亮", "屏幕太亮", "刺眼", "亮了", NULL };
+    if (strstr_any(text, bri_down_kw)) {
+        int level = esp32s3_get_brightness();
+        if (level > 0) level--;
+        esp32s3_set_brightness(level);
+        syslog(LOG_INFO, "[TONG] brightness down → level %d\n", level);
+        return;
+    }
+}
+
 /* ========== volc事件回调 (从recv_thread/start_thread调用) ========== */
 
 static void volc_event_callback(volc_callback_type_t type, const char *data)
@@ -501,6 +559,11 @@ static void volc_event_callback(volc_callback_type_t type, const char *data)
 
             /* 音量本地调节——静默执行硬件操作，不抑制TTS */
             try_volume_adjust(data);
+            g_pending_flags |= PENDING_VOLUME_SYNC;
+
+            /* 亮度本地调节——静默执行硬件操作，不抑制TTS */
+            try_brightness_adjust(data);
+            g_pending_flags |= PENDING_BRIGHTNESS_SYNC;
         }
         break;
     case VOLC_CB_DISCONNECTED:
@@ -548,6 +611,14 @@ static void volc_timer_cb(lv_timer_t *timer)
     if (flags & PENDING_DISCONNECTED) {
         tong_update_ui_state(TONG_STATE_IDLE, NULL);
         g_reconnect_ticks = 0;  /* 主动停止，取消自动重连 */
+    }
+
+    if (flags & PENDING_VOLUME_SYNC) {
+        volume_ring_refresh_ui();
+    }
+
+    if (flags & PENDING_BRIGHTNESS_SYNC) {
+        display_refresh_brightness_ui();
     }
 
     /* 异常断开自动重连倒计时 */
