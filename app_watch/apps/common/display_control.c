@@ -51,7 +51,7 @@ static void timeout_timer_cb(lv_timer_t *timer)
 
 void display_set_timeout(int timeout)
 {
-    if (timeout < 5 || timeout > 60) timeout = DEFAULT_TIMEOUT;
+    if (timeout < 5 || timeout > 300) timeout = DEFAULT_TIMEOUT;
     g_timeout_sec = timeout;
 
     int fd = open(TIMEOUT_FILE, O_WRONLY | O_CREAT | O_TRUNC, 0644);
@@ -76,7 +76,7 @@ int display_get_timeout(void)
         read(fd, buf, sizeof(buf) - 1);
         close(fd);
         int t = atoi(buf);
-        if (t >= 5 && t <= 60) g_timeout_sec = t;
+        if (t >= 5 && t <= 300) g_timeout_sec = t;
     }
     return g_timeout_sec;
 }

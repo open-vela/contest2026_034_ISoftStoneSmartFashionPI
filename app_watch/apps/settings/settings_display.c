@@ -30,10 +30,14 @@ static bool wrist_raise_enabled = false;
 /* 熄屏时间 (秒) */
 static int screen_timeout = 10;
 
+/* 熄屏时间选项 (秒) */
+static const int timeout_values[] = {5, 10, 20, 30, 60, 300};
+#define TIMEOUT_OPT_COUNT 6
+
 static void settings_display_init_timeout(void)
 {
     screen_timeout = display_get_timeout();
-    if (screen_timeout < 5 || screen_timeout > 60) {
+    if (screen_timeout < 5 || screen_timeout > 300) {
         screen_timeout = 10;
     }
 }
@@ -305,22 +309,19 @@ static void settings_display_timeout_create(void)
     // lv_obj_set_style_text_color(title_label, lv_color_white(), 0);
     // lv_obj_align(title_label, LV_ALIGN_TOP_MID, 0, 20);
 
-    // 创建滚轮 (5秒-60秒)
+    // 创建滚轮 (5s, 10s, 20s, 30s, 1min, 5min)
+
     timeout_roller = lv_roller_create(timeout_base);
-    char timeout_buf[400] = {0};
-    for (int i = 5; i <= 60; i += 5) {
-        char timeout_str[20];
-        sprintf(timeout_str, "%d秒\n", i);
-        strcat(timeout_buf, timeout_str);
+    lv_roller_set_options(timeout_roller,
+        "5秒\n10秒\n20秒\n30秒\n1分钟\n5分钟", LV_ROLLER_MODE_INFINITE);
+
+    // 计算当前选中的索引
+    int selected_idx = 0;
+    for (int i = 0; i < TIMEOUT_OPT_COUNT; i++) {
+        if (screen_timeout <= timeout_values[i]) { selected_idx = i; break; }
     }
-    // 去掉最后一个换行符
-    timeout_buf[strlen(timeout_buf)-1] = '\0';
-    
-    lv_roller_set_options(timeout_roller, timeout_buf, LV_ROLLER_MODE_INFINITE);
-    // 计算当前选中的索引 (screen_timeout / 5 - 1)
-    int selected_idx = (screen_timeout / 5) - 1;
-    if (selected_idx < 0) selected_idx = 0;
-    if (selected_idx > 11) selected_idx = 11;
+    if (screen_timeout > timeout_values[TIMEOUT_OPT_COUNT - 1])
+        selected_idx = TIMEOUT_OPT_COUNT - 1;
     lv_roller_set_selected(timeout_roller, selected_idx, LV_ANIM_OFF);
     lv_obj_set_width(timeout_roller, WATCH_BTN_WIDTH);
     lv_obj_align(timeout_roller, LV_ALIGN_TOP_MID, 0, 20);
@@ -387,7 +388,8 @@ static void settings_display_timeout_create(void)
 static void timeout_roller_confirm_handler(lv_event_t *e)
 {
     uint16_t selected = lv_roller_get_selected(timeout_roller);
-    screen_timeout = (selected + 1) * 5;
+    selected %= TIMEOUT_OPT_COUNT;
+    screen_timeout = timeout_values[selected];
     display_set_timeout(screen_timeout);
     DISPLAY_LOG("Set screen timeout to %d seconds", screen_timeout);
     

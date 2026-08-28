@@ -348,9 +348,9 @@ static void setting_battery_create(void)
     // 创建剩余标题
     lv_obj_t *remaining_title_label = lv_label_create(battery_base);
     lv_label_set_text(remaining_title_label, "剩余");
-    lv_obj_set_style_text_font(remaining_title_label, vw_resource_get_font(WATCH_REGULAR_FONT "_20"), 0);
+    lv_obj_set_style_text_font(remaining_title_label, vw_resource_get_font(WATCH_REGULAR_FONT "_32"), 0);
     lv_obj_set_style_text_color(remaining_title_label, lv_color_white(), 0);
-    lv_obj_align_to(remaining_title_label, battery_arc, LV_ALIGN_TOP_MID, 0, 54);
+    lv_obj_align_to(remaining_title_label, battery_arc, LV_ALIGN_TOP_MID, 0, 50);
 
     // 创建电量显示
     battery_label = lv_label_create(battery_arc);
@@ -383,7 +383,7 @@ static void setting_battery_create(void)
     }
     lv_obj_set_style_text_font(remaining_time_label, vw_resource_get_font(WATCH_REGULAR_FONT "_32"), 0);
     lv_obj_set_style_text_color(remaining_time_label, lv_color_white(), 0);
-    lv_obj_align(remaining_time_label, LV_ALIGN_TOP_MID, 0, 403);
+    lv_obj_align(remaining_time_label, LV_ALIGN_TOP_MID, 0, 385);
 
     // 将页面压入页面栈
     vw_watch_push_page(battery_base);
