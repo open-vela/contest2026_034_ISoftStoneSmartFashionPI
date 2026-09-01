@@ -22,11 +22,17 @@ static int       g_timeout_sec  = DEFAULT_TIMEOUT;
 static int       g_change       = 0;    /* 0=正常, 1=亮屏中, 2=需亮屏 */
 static bool      g_screen_off   = false;
 static lv_timer_t *g_timer      = NULL;
+/* 自动熄屏开关：语音交互场景（表情潮玩模式、小通AI页面）调用
+ * display_timeout_disable() 挂起熄屏，退出时 display_timeout_enable()
+ * 恢复。禁用期间定时器保持运行但不执行熄屏。 */
+static bool      g_timeout_disabled = false;
 
 static void timeout_timer_cb(lv_timer_t *timer)
 {
     lv_disp_t *disp = lv_disp_get_default();
     if (!disp) return;
+
+    if (g_timeout_disabled) return;
 
     uint32_t inactive_ms = lv_disp_get_inactive_time(disp);
 
@@ -99,6 +105,40 @@ void setNull_display_timeout_timer(void)
         lv_timer_del(g_timer);
         g_timer = NULL;
     }
+}
+
+/**
+ * @brief 暂停自动熄屏（语音交互场景：表情潮玩模式、小通AI页面）。
+ *
+ * 只挂起熄屏判定，定时器不删除；若屏幕已熄则立即点亮。
+ * 与语音侧 180s 空闲待机（表情隐藏）相互独立，互不影响。
+ */
+void display_timeout_disable(void)
+{
+    if (!g_timeout_disabled) {
+        g_timeout_disabled = true;
+        if (g_screen_off) {
+            esp32s3_display_on();
+            g_screen_off = false;
+            g_change = 0;
+        }
+        syslog(LOG_INFO, "[DISPLAY] auto off disabled\n");
+    }
+}
+
+/**
+ * @brief 恢复自动熄屏，并从当前时刻重新计时（避免退出语音场景后
+ * 按上一次触摸时间立即熄屏）。
+ */
+void display_timeout_enable(void)
+{
+    if (!g_timeout_disabled) return;
+    g_timeout_disabled = false;
+
+    lv_disp_t *disp = lv_disp_get_default();
+    if (disp) lv_display_trigger_activity(disp);
+
+    syslog(LOG_INFO, "[DISPLAY] auto off enabled\n");
 }
 
 int getchange(void)
