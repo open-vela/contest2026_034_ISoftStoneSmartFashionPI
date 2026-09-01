@@ -121,6 +121,15 @@ int volc_voice_start(volc_event_cb_t cb);
 void volc_voice_stop(void);
 
 /**
+ * 在同一 WebSocket 连接上重启会话（不断 TCP/TLS 连接）：
+ * FinishSession → 重发 StartSession（system_role 注入最新电量/音量）。
+ * 用于音量调整后同步服务端上下文，避免断开重连带来的断线感知。
+ * 注意：会阻塞直到新会话建立或超时，调用方应放在独立线程。
+ * @return 0成功, 负值失败
+ */
+int volc_voice_restart_session(void);
+
+/**
  * 检查会话是否活跃
  * @return true活跃, false未活跃
  */

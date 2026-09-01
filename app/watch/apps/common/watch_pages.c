@@ -36,6 +36,7 @@
 #include <pthread.h>
 #include <sys/ioctl.h>
 #include <mqueue.h>
+#include <time.h>
 
 #include <nuttx/power/axp2101.h>
 
@@ -45,6 +46,22 @@
 
 /* System alert audio (flat build, symbol from ai_agent package) */
 extern void tool_system_alert_play(int alert_id, int force);
+
+#ifdef CONFIG_AI_AGENT_EMOTION_TOY
+/* ai_agent 语音管线（flat build 直接链接）：低电量/充电主动提醒用。
+ * 声明不引入 ai_agent 头文件——跨 app 目录无 include 路径，与
+ * tool_system_alert_play 保持一致的 extern 风格。
+ * 提示词经 voice_channel_inject_prompt 注入，由 conversation_thread
+ * 按完整对话回合消费（LLM 生成文案 + TTS + 状态机），不直接 speak
+ * ——外部 speak 会把 LISTENING 翻成 SPEAKING 导致对话线程退出、
+ * 唤醒词系统永久失效。 */
+extern bool voice_channel_is_listening(void);
+extern int  voice_channel_inject_prompt(const char *text);
+extern bool voice_channel_is_mic_muted(void);
+extern bool voice_channel_is_wake_gated(void);
+extern void voice_channel_suppress_speaking_face(bool suppress);
+extern bool tool_emotion_audio_is_playing(void);
+#endif
 
 /****************************************************************************
  * Pre-processor Definitions
@@ -228,6 +245,15 @@ void watch_expression_page_show(void)
   if (s_page_root) {
     lv_obj_clear_flag(s_page_root, LV_OBJ_FLAG_HIDDEN);
   }
+}
+
+bool watch_expression_page_is_hidden(void)
+{
+  if (s_page_root == NULL)
+    {
+      return true;  /* 未初始化视为隐藏 */
+    }
+  return lv_obj_has_flag(s_page_root, LV_OBJ_FLAG_HIDDEN);
 }
 
 void watch_expression_page_deinit(lv_obj_t *page_obj)
@@ -420,17 +446,154 @@ int watch_expression_page_set_face(const char* face_id, int duration_ms)
 
 /* ── 电池电量监控 ──────────────────────────────────────────────── */
 
-/* 低电量告警阈值（百分比） */
-#define WATCH_BATTERY_LOW_THRESHOLD   20
+/* 低电量告警阈值（百分比）：临时调至 80 便于实测验证，正式发布
+ * 前应恢复为 20 */
+#define WATCH_BATTERY_LOW_THRESHOLD   80
 
 /* 电量周期检测间隔（毫秒） */
-#define WATCH_BATTERY_CHECK_INTERVAL_MS  60000  /* 60秒检测一次 */
+#define WATCH_BATTERY_CHECK_INTERVAL_MS  10000  /* 10秒检测一次 */
+
+/* 低电量期间重复提醒间隔（秒）：低于阈值期间每 60 秒注入一次
+ * 提醒提示词，直到充电或电量恢复 */
+#define WATCH_BATTERY_REMIND_INTERVAL_SEC  60
+
+/* 充电状态轮询间隔（毫秒）：插电报喜要求 ~1s 内感知 */
+#define WATCH_CHARGE_CHECK_INTERVAL_MS  1000
+
+/* 注入 E2E 模型的主动提示词。措辞避开端侧情感关键词表
+ * （emotion_keywords.h），避免 apply_client_emotion_face 覆盖本模块
+ * 预设的固定表情；并显式禁止工具调用，防止模型经 set_face 工具
+ * 覆盖表情。 */
+#define BATTERY_LOW_PROMPT_INJECT \
+  "【系统】当前设备电量仅剩%u%%，请主动提醒主人给我充电，" \
+  "用一句话表达，语气可爱自然，不要调用任何工具。"
+#define BATTERY_CHARGED_PROMPT_INJECT \
+  "【系统】主人刚给我充上电啦，请用一句话表达开心和感谢，" \
+  "语气可爱，不要调用任何工具。"
+
+/* 低电量提醒固定表情（sick=虚弱）与充电报喜固定表情（proud） */
+#define BATTERY_LOW_FACE     "sick"
+#define BATTERY_CHARGED_FACE "proud"
 
 /* 电量监控定时器 */
 static lv_timer_t *s_battery_timer = NULL;
 
-/* 低电量告警去重标志：仅在「正常→低电量」跳变时输出一次告警 */
-static bool s_battery_low_warned = false;
+/* 充电状态轮询定时器 */
+static lv_timer_t *s_charge_timer = NULL;
+
+/* 低电量提醒已播报标志：作为「充电满血报喜」的资格——仅低电量
+ * 提醒后插电才报喜；插电报喜或电量恢复后清除 */
+static bool s_low_power_reminded = false;
+
+/* 上次充电状态：用于检测 0→1 跳变（插入充电器） */
+static bool s_prev_charging = false;
+
+/* 上次注入提醒的时间戳：低电量期间周期性提醒（每 60 秒一次），
+ * 电量恢复后清零重计 */
+static time_t s_last_remind_ts = 0;
+
+/* 提醒回合进行中标志：注入后置 true。语音回到 LISTENING 说明
+ * 播报完成，此时清标志并做待机收尾（恢复隐藏表情页） */
+static bool s_remind_in_flight = false;
+
+/* 本次提醒是否从待机唤醒的表情页：播报完成后恢复隐藏 */
+static bool s_remind_woke_page = false;
+
+/* 当前是否处于表情模式：低电量人格化提醒为表情模式专属，手表
+ * 模式保持原提示音行为。由两个 watch_switch_to_* 函数维护。 */
+static bool s_expression_mode = true;
+
+/* ── 电量/充电主动提醒（注入 E2E 模型） ─────────────────────────── */
+
+/* 提醒类型 */
+enum battery_remind_kind_e
+{
+  BATTERY_REMIND_LOW,     /* 低电量提醒 */
+  BATTERY_REMIND_CHARGED, /* 充电满血报喜 */
+};
+
+/**
+ * @brief 电量/充电主动提醒（提示词注入 E2E 模型）
+ *
+ *  状态门（全部满足才注入，否则静默跳过、下轮检测再试）：
+ *   - 语音通道 LISTENING（唤醒系统就绪且空闲，开机/对话中跳过）；
+ *   - 未禁麦（短按禁麦期间不打扰，解除后下轮触发）；
+ *   - 无预设音频在播（扬声器被占用时跳过）。
+ *
+ *  注入后由 conversation_thread 按完整对话回合消费：LLM 生成
+ *  不固定文案 → TTS 播报 → 状态机自恢复，不打断任何进行中的
+ *  流程。固定表情在注入前预设（sick/proud），提示词禁止工具
+ *  调用与情感关键词，模型不会覆盖表情。
+ *
+ * @param kind 提醒类型
+ * @param soc  当前电量（仅低电量提醒使用）
+ */
+static void battery_proactive_remind(int kind, uint8_t soc)
+{
+#ifdef CONFIG_AI_AGENT_EMOTION_TOY
+  if (!voice_channel_is_listening())
+    {
+      PAGE_LOG("[BATTERY] remind deferred (voice not listening)");
+      return;
+    }
+
+  if (voice_channel_is_mic_muted())
+    {
+      PAGE_LOG("[BATTERY] remind deferred (mic muted)");
+      return;
+    }
+
+  if (tool_emotion_audio_is_playing())
+    {
+      PAGE_LOG("[BATTERY] remind deferred (audio playing)");
+      return;
+    }
+
+  /* 低电量提醒按固定周期（60 秒）重复，充电报喜只报一次 */
+  if (kind == BATTERY_REMIND_LOW
+      && time(NULL) - s_last_remind_ts < WATCH_BATTERY_REMIND_INTERVAL_SEC)
+    {
+      return;
+    }
+
+  /* 待机场景（180s 无交互表情页已隐藏）→ 唤醒表情页播报 */
+  if (watch_expression_page_is_hidden())
+    {
+      watch_expression_page_show();
+      s_remind_woke_page = true;
+      PAGE_LOG("[BATTERY] standby → show page for remind");
+    }
+
+  /* 提示词含中文（UTF-8 每字 3 字节），192 字节余量充足 */
+  char prompt[192];
+  if (kind == BATTERY_REMIND_LOW)
+    {
+      snprintf(prompt, sizeof(prompt), BATTERY_LOW_PROMPT_INJECT,
+               (unsigned)soc);
+      /* 表情不在此切换：保持当前脸，TTS 即将播放时由 agent 层
+       * 一次性切换 sick/proud，播完恢复 listening。 */
+      s_low_power_reminded = true;
+    }
+  else
+    {
+      snprintf(prompt, sizeof(prompt), "%s", BATTERY_CHARGED_PROMPT_INJECT);
+      s_low_power_reminded = false;
+    }
+
+  /* 播报期间保持固定表情，不被 speaking 脸抢占（one-shot） */
+  voice_channel_suppress_speaking_face(true);
+
+  if (voice_channel_inject_prompt(prompt) == 0)
+    {
+      PAGE_LOG("[BATTERY] remind injected (kind=%d): %s", kind, prompt);
+      s_last_remind_ts = time(NULL);
+      s_remind_in_flight = true;
+    }
+#else
+  (void)kind;
+  (void)soc;
+#endif
+}
 
 /**
  * @brief 获取当前电池电量百分比
@@ -446,56 +609,128 @@ uint8_t watch_battery_get_level(void)
 }
 
 /**
- * @brief 检测电池电量并在低电量时通过 syslog 输出告警
+ * @brief 电量监控定时器回调（每 10 秒）
  *
- *  当电量低于 WATCH_BATTERY_LOW_THRESHOLD（默认20%）时，通过
- *  syslog(LOG_WARNING) 输出当前电量值及「电量过低」警告信息。
- *  为避免日志刷屏，仅在状态由正常跳变为低电量时输出一次告警；
- *  电量恢复后会重置标志，下次再次低于阈值时重新告警。
+ *  1. 上一轮注入的提醒若仍在播报（语音未回到 LISTENING），只做
+ *     收尾检查，本周期不再注入新提醒。
+ *  2. 电量低于阈值：表情模式注入提示词（周期性重复提醒，间隔
+ *     见 WATCH_BATTERY_REMIND_INTERVAL_SEC）；手表模式保留原生
+ *     最高优先级提示音。
+ *  3. 电量恢复：重置提醒计时与报喜资格。
  *
- * @return bool 电量过低返回 true，否则返回 false
- */
-bool watch_battery_check_low_warning(void)
-{
-  uint8_t soc = watch_battery_get_level();
-
-  if (soc < WATCH_BATTERY_LOW_THRESHOLD)
-    {
-      if (!s_battery_low_warned)
-        {
-          syslog(LOG_WARNING,
-                 "[BATTERY] 电量过低: 当前电量 %u%%, 请及时充电",
-                 (unsigned int)soc);
-          s_battery_low_warned = true;
-          /* Play low-battery alert audio (highest priority) */
-          tool_system_alert_play(15, 0);
-        }
-      return true;
-    }
-  else
-    {
-      /* 电量已恢复，重置告警标志，便于下次低电量时再次告警 */
-      s_battery_low_warned = false;
-      return false;
-    }
-}
-
-/**
- * @brief 电量监控定时器回调
+ *  状态门（is_listening / 未禁麦 / 无预设音频）在
+ *  battery_proactive_remind 内部检查，不满足时静默跳过，
+ *  下个周期再试——不打断 ASR、TTS、mic、扬声器的任何流程。
  */
 static void battery_timer_cb(lv_timer_t *timer)
 {
   (void)timer;
-  watch_battery_check_low_warning();
+
+  /* 提醒回合收尾：语音回到 LISTENING 说明播报完成。
+   *  待机场景（从隐藏状态唤醒的表情页）在唤醒门仍关闭
+   *  （用户未交互）时恢复隐藏，回到待机。 */
+  if (s_remind_in_flight)
+    {
+      if (!voice_channel_is_listening())
+        {
+          return;  /* 回合未完成，下周期再收尾 */
+        }
+
+      if (s_remind_woke_page)
+        {
+          if (voice_channel_is_wake_gated())
+            {
+              watch_expression_page_hide();
+              PAGE_LOG("[BATTERY] remind done, back to standby");
+            }
+          else
+            {
+              /* 播报后用户已唤醒交互：页面交给正常流程管理 */
+              PAGE_LOG("[BATTERY] remind done, user took over");
+            }
+          s_remind_woke_page = false;
+        }
+      s_remind_in_flight = false;
+      return;
+    }
+
+  uint8_t soc = watch_battery_get_level();
+
+  /* 充电中（非放电，即插着充电器）不提醒「要充电」：刚插上充电
+   * 时电量可能仍低于阈值，但正在补电，无需打扰；充满停充时电量
+   * 已恢复。仅放电状态（未插电）才提醒。 */
+  bool plugged_in = (axp2101_get_pmu_charge_status() != 2);
+
+  if (soc < WATCH_BATTERY_LOW_THRESHOLD && !plugged_in)
+    {
+#ifdef CONFIG_AI_AGENT_EMOTION_TOY
+      if (s_expression_mode)
+        {
+          battery_proactive_remind(BATTERY_REMIND_LOW, soc);
+        }
+      else
+#endif
+        {
+          /* 非表情模式：原生硬提示音（最高优先级，自带 30s 去重） */
+          tool_system_alert_play(15, 0);
+        }
+
+      syslog(LOG_WARNING,
+             "[BATTERY] 电量过低: 当前电量 %u%%, 请及时充电",
+             (unsigned int)soc);
+    }
+  else
+    {
+      /* 电量已恢复：重置提醒周期与报喜资格 */
+      s_last_remind_ts = 0;
+      s_low_power_reminded = false;
+    }
+}
+
+/**
+ * @brief 充电状态轮询回调（1秒）
+ *
+ *  检测 0→1 跳变（插入充电器）。仅当此前已播过低电量提醒
+ *  （s_low_power_reminded）且处于表情模式时触发「满血报喜」：
+ *  注入提示词让 E2E 模型生成不固定报喜文案。状态门不满足时
+ *  静默跳过本次报喜但保留资格（下次插电仍可触发）。
+ */
+static void charge_timer_cb(lv_timer_t *timer)
+{
+  (void)timer;
+
+  /* 6:5 位=01 表示「正在充电」（standby=00 待机/充满停充、10 放电）。
+   * 满电时插上充电器（standby）不触发报喜——与表盘图标用 VBUS 位
+   * 判定不同：图标要求「插着就显示闪电」，报喜要求「真的在充」。 */
+  bool charging = (axp2101_get_pmu_charge_status() == 1);
+
+  if (charging && !s_prev_charging)
+    {
+      PAGE_LOG("[BATTERY] charger plugged in");
+#ifdef CONFIG_AI_AGENT_EMOTION_TOY
+      if (s_expression_mode && s_low_power_reminded)
+        {
+          /* 上一轮提醒还在播报时不叠加注入（状态门在
+           * battery_proactive_remind 内也会拦截，这里提前跳过
+           * 以免资格被误消耗）。 */
+          if (!s_remind_in_flight)
+            {
+              battery_proactive_remind(BATTERY_REMIND_CHARGED, 0);
+            }
+        }
+#endif
+    }
+
+  s_prev_charging = charging;
 }
 
 /**
  * @brief 启动电池电量周期监控
  *
- *  在 LVGL 事件循环中创建定时器，按
- *  WATCH_BATTERY_CHECK_INTERVAL_MS（默认60秒）间隔周期性检测
- *  电池电量。启动时立即执行一次检测。重复调用安全：已存在
- *  定时器时直接返回，避免重复创建。
+ *  在 LVGL 事件循环中创建定时器：电量检测每 10 秒一次、充电
+ *  状态轮询每 1 秒一次。开机阶段状态门（voice 未就绪）自动
+ *  拦截至唤醒系统进入 LISTENING，无需额外延迟。重复调用安全：
+ *  已存在定时器时直接返回。
  */
 void watch_battery_check_start(void)
 {
@@ -504,12 +739,19 @@ void watch_battery_check_start(void)
       return;
     }
 
-  /* 启动时立即检测一次电量 */
-  watch_battery_check_low_warning();
-
   s_battery_timer = lv_timer_create(battery_timer_cb,
-                                     WATCH_BATTERY_CHECK_INTERVAL_MS,
-                                     NULL);
+                                    WATCH_BATTERY_CHECK_INTERVAL_MS,
+                                    NULL);
+
+  /* 充电状态轮询（1秒）：「低电量提醒后插电报喜」依赖它。
+   * 初始值取当前状态，避免启动时已在充电被误判为「刚插入」。 */
+  s_prev_charging = (axp2101_get_pmu_charge_status() == 1);
+  if (s_charge_timer == NULL)
+    {
+      s_charge_timer = lv_timer_create(charge_timer_cb,
+                                        WATCH_CHARGE_CHECK_INTERVAL_MS,
+                                        NULL);
+    }
 }
 
 /**
@@ -522,6 +764,18 @@ void watch_battery_check_stop(void)
       lv_timer_del(s_battery_timer);
       s_battery_timer = NULL;
     }
+
+  if (s_charge_timer != NULL)
+    {
+      lv_timer_del(s_charge_timer);
+      s_charge_timer = NULL;
+    }
+
+  /* 重置提醒状态：下次 start 重新计时 */
+  s_last_remind_ts = 0;
+  s_remind_in_flight = false;
+  s_remind_woke_page = false;
+  s_low_power_reminded = false;
 }
 
 /* ── Vendor Watch UI 切换接口 ──────────────────────────────────────── */
@@ -530,6 +784,10 @@ void watch_battery_check_stop(void)
 extern int vw_launcher_init(lv_obj_t *parent);
 extern void vw_launcher_deinit(void);
 extern void vw_resource_init(void);
+/* 自动熄屏开关（app_watch display_control）：表情模式永不熄屏，
+ * 进入手表模式恢复自动熄屏 */
+extern void display_timeout_disable(void);
+extern void display_timeout_enable(void);
 
 /**
  * @brief 切换到 vendor 手表界面
@@ -542,6 +800,13 @@ extern void vw_resource_init(void);
  */
 int watch_switch_to_watch_app(lv_obj_t *parent)
 {
+  /* 0. 记录模式：低电量人格化语音为表情模式专属，手表模式回退
+   *    原生提示音 */
+  s_expression_mode = false;
+
+  /* 1. 恢复手表模式的自动熄屏（表情模式为永不熄屏） */
+  display_timeout_enable();
+
   /* 1. 清理现有表情页面 */
   if (s_page_root != NULL)
     {
@@ -576,7 +841,16 @@ int watch_switch_to_expression_app(lv_obj_t *parent)
   /* 1. 清理 vendor 手表 UI 全部资源 */
   vw_launcher_deinit();
 
-  /* 2. 初始化表情页面 */
+  /* 2. 记录模式：切回表情模式，恢复人格化主动提示 */
+  s_expression_mode = true;
+
+  /* 3. 表情模式永不熄屏：挂起自动熄屏（手表模式切换过来时熄屏
+   * 定时器仍在运行）。放在 vw_launcher_deinit() 之后，避免小通AI
+   * 页面的删除回调 (tong_page_deleted_cb → display_timeout_enable)
+   * 把禁用标志冲掉。与语音侧 180s 空闲待机互不影响。 */
+  display_timeout_disable();
+
+  /* 3. 初始化表情页面 */
   s_page_root = watch_expression_page_init(parent);
   if (s_page_root == NULL)
     {

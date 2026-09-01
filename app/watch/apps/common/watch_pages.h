@@ -86,6 +86,13 @@ void watch_expression_page_hide(void);
 void watch_expression_page_show(void);
 
 /**
+ * @brief 表情页面当前是否隐藏（待机状态）
+ *
+ * @return true 页面隐藏（或未初始化），false 可见
+ */
+bool watch_expression_page_is_hidden(void);
+
+/**
  * @brief 销毁表情展示公共页面
  *
  *  释放页面相关资源。
@@ -136,21 +143,11 @@ int watch_expression_page_set_face(const char* face_id, int duration_ms);
 uint8_t watch_battery_get_level(void);
 
 /**
- * @brief 检测电池电量并在低电量时通过 syslog 输出告警
- *
- *  当电量低于 20% 时，通过 syslog(LOG_WARNING) 输出当前电量值
- *  及「电量过低」警告信息。为避免日志刷屏，仅在状态由正常跳
- *  变为低电量时输出一次告警；电量恢复后重置标志。
- *
- * @return bool 电量过低返回 true，否则返回 false
- */
-bool watch_battery_check_low_warning(void);
-
-/**
  * @brief 启动电池电量周期监控
  *
- *  在 LVGL 事件循环中创建定时器，周期性（默认60秒）检测电池
- *  电量。启动时立即执行一次检测。重复调用安全。
+ *  在 LVGL 事件循环中创建定时器：每 10 秒检测电量、每 1 秒轮询
+ *  充电状态。低电量时向 E2E 模型注入提示词触发人格化提醒
+ *  （表情模式），手表模式保留原生提示音。重复调用安全。
  */
 void watch_battery_check_start(void);
 

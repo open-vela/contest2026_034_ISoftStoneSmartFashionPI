@@ -15,11 +15,11 @@
 #include "tong_ai.h"
 #include "tong_ai_ws.h"
 #include "../common/watch_pages.h"
+#include "../common/display_compat.h"
 #include "../launcher/launcher.h"
 #include "../settings/settings_wifi.h"
 #include "../home_control/home_control.h"
 #include "../../resource/resource.h"
-#include "../../../../app/watch/apps/common/ui_mode_manager.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -94,8 +94,19 @@ static lv_timer_t *g_volc_timer = NULL;
 /* 异常断开后自动重连(timer tick=50ms)，连续失败达上限后转手动 */
 #define RECONNECT_DELAY_TICKS 60   /* 60 x 50ms = 3s */
 #define RECONNECT_MAX_RETRY  3
+/* 启动/重启线程栈大小 */
+#define START_THREAD_STACK (32 * 1024)
 static int g_reconnect_ticks = 0;
 static int g_reconnect_count = 0;
+
+/* 音量已本地调整：服务器 system_role 里的音量快照过时，等当前轮
+ * TTS 播完(CONNECTED)后在原连接上重启会话（不断 TCP/TLS），让新
+ * StartSession 注入最新音量。 */
+static volatile bool g_volume_changed = false;
+/* 音量同步重启线程（在独立线程执行 volc_voice_restart_session，
+ * 避免网络等待阻塞 LVGL）；g_restarting 防止并发重启 */
+static pthread_t g_restart_tid;
+static volatile bool g_restarting = false;
 
 /* ========== 前向声明 ========== */
 static void slide_gesture_handler(lv_event_t *e);
@@ -107,6 +118,7 @@ static void volc_timer_cb(lv_timer_t *timer);
 static void tong_page_deleted_cb(lv_event_t *e);
 static void volc_event_callback(volc_callback_type_t type, const char *data);
 static void *voice_start_thread(void *arg);
+static void *voice_restart_thread(void *arg);
 static bool start_voice_session(void);
 
 /* ========== 公开API ========== */
@@ -348,9 +360,11 @@ static int strstr_any(const char *buf, const char * const variants[])
  * 本地静默执行硬件操作，服务器TTS正常播放确认回复。
  * ============================================================ */
 
-static void try_volume_adjust(const char *text)
+/* 本地音量调节：命中指令返回 1（需重建会话同步服务器上下文），
+ * 未命中返回 0。 */
+static int try_volume_adjust(const char *text)
 {
-    if (!text || !text[0]) return;
+    if (!text || !text[0]) return 0;
 
     /* ── 音量最大/最小 ──────────────────────────────────── */
     static const char * const vol_max_kw[] = {
@@ -360,12 +374,12 @@ static void try_volume_adjust(const char *text)
     if (strstr_any(text, vol_max_kw)) {
         watch_volume_set_percent(100);
         syslog(LOG_INFO, "[TONG] vol max → 100%%\n");
-        return;
+        return 1;
     }
     if (strstr_any(text, vol_min_kw)) {
         watch_volume_set_percent(10);
         syslog(LOG_INFO, "[TONG] vol min → 10%%\n");
-        return;
+        return 1;
     }
 
     /* ── 音量调大 ────────────────────────────────────────── */
@@ -379,7 +393,7 @@ static void try_volume_adjust(const char *text)
     if (strstr_any(text, vol_up_kw)) {
         int pct = watch_volume_step_delta(10);
         syslog(LOG_INFO, "[TONG] vol up → %d%%\n", pct);
-        return;
+        return 1;
     }
 
     /* ── 音量调小 ────────────────────────────────────────── */
@@ -393,7 +407,7 @@ static void try_volume_adjust(const char *text)
     if (strstr_any(text, vol_down_kw)) {
         int pct = watch_volume_step_delta(-10);
         syslog(LOG_INFO, "[TONG] vol down → %d%%\n", pct);
-        return;
+        return 1;
     }
 
     /* [REMOVED 2026-08-17] 语音"静音"分支已删除：音量设 0 后服务器 TTS
@@ -408,7 +422,7 @@ static void try_volume_adjust(const char *text)
     if (strstr_any(text, vol_unmute_kw)) {
         watch_volume_set_percent(50);
         syslog(LOG_INFO, "[TONG] vol unmute → 50%%\n");
-        return;
+        return 1;
     }
 
     /* ── 音量设为指定值 ──────────────────────────────────── */
@@ -427,12 +441,14 @@ static void try_volume_adjust(const char *text)
                     if (num > 100) num = 100;
                     watch_volume_set_percent(num);
                     syslog(LOG_INFO, "[TONG] vol set → %d%%\n", num);
+                    return 1;
                 }
-                return;
+                return 0;
             }
             p++;
         }
     }
+    return 0;
 }
 
 /* ========== 亮度本地调节（静默执行，不抑制TTS）============ */
@@ -504,6 +520,13 @@ static void volc_event_callback(volc_callback_type_t type, const char *data)
             g_pending_flags |= PENDING_ERROR;
         }
         break;
+    case VOLC_CB_AI_TEXT:
+        /* E2E 模型输出内容：打印日志与 ASR 对照（tong_ai_ws.c 的
+         * EVENT_CHAT_RESPONSE 处也有原始打印）。 */
+        if (data) {
+            syslog(LOG_INFO, "[TONG] AI: \"%s\"\n", data);
+        }
+        break;
     case VOLC_CB_CONNECTED:
         /* 由 VOLC_CB_UI_STATE(VOLC_UI_CONNECTED) 处理 */
         break;
@@ -530,16 +553,10 @@ static void volc_event_callback(volc_callback_type_t type, const char *data)
              * HOME_CTRL_NONE: 无关指令，继续UI模式切换检测 */
 
             int matched = 0;
-            ui_mode_t switch_target = UI_MODE_EXPRESSION;
             /* 策略1: 完整短语匹配（含发音变体） */
             if (strstr_any(data, VAR_CHAOWAN) ||
                 strstr_any(data, VAR_BIAOQING)) {
                 matched = 1;
-                switch_target = UI_MODE_EXPRESSION;
-            } else if (strstr_any(data, VAR_BIOPAN)) {
-                /* "表盘"等变体 → 切换到手表模式 */
-                matched = 1;
-                switch_target = UI_MODE_WATCH;
             }
             /* 策略2: 动作词+目标词变体组合匹配 */
             if (!matched) {
@@ -548,31 +565,27 @@ static void volc_event_callback(volc_callback_type_t type, const char *data)
                     strstr(data, "进入") ||
                     strstr(data, "回到") ||
                     strstr(data, "返回"));
-                if (has_action) {
-                    if (strstr_any(data, VAR_CHAOWAN) ||
-                        strstr_any(data, VAR_BIAOQING)) {
-                        matched = 1;
-                        switch_target = UI_MODE_EXPRESSION;
-                    } else if (strstr_any(data, VAR_BIOPAN)) {
-                        matched = 1;
-                        switch_target = UI_MODE_WATCH;
-                    }
-                }
+                int has_target = (strstr_any(data, VAR_CHAOWAN) ||
+                    strstr_any(data, VAR_BIAOQING) ||
+                    strstr_any(data, VAR_BIOPAN));
+                if (has_action && has_target) matched = 1;
             }
             if (matched) {
-                syslog(LOG_INFO, "[TONG] UI mode switch triggered: %s (target=%d)\n",
-                       data, (int)switch_target);
-                int ret = ui_mode_switch_runtime(switch_target, lv_scr_act());
-                if (ret != 0)
-                    syslog(LOG_INFO, "[TONG] Failed to switch UI mode: %d\n", ret);
-                else
-                    syslog(LOG_INFO, "[TONG] UI mode switched (runtime, target=%d)\n",
-                           (int)switch_target);
-                return;  /* 切换后不再处理本条文本 */
+                syslog(LOG_INFO, "[TONG] UI mode switch triggered: %s\n", data);
+                FILE *fp = fopen("/mnt/spif/ui_mode.json", "w");
+                if (fp) {
+                    fprintf(fp, "{\"ui_mode\":0}\n");
+                    fclose(fp);
+                }
+                axp2101_power_reset();
+                /* 不会到达这里 */
             }
 
-            /* 音量本地调节——静默执行硬件操作，不抑制TTS */
-            try_volume_adjust(data);
+            /* 音量本地调节——静默执行硬件操作，不抑制TTS。
+             * 实际调整后标记，等本轮TTS播完后重建会话（服务器
+             * system_role 注入的音量快照已过时）。 */
+            if (try_volume_adjust(data))
+                g_volume_changed = true;
             g_pending_flags |= PENDING_VOLUME_SYNC;
 
             /* 亮度本地调节——静默执行硬件操作，不抑制TTS */
@@ -609,10 +622,29 @@ static void volc_timer_cb(lv_timer_t *timer)
         case VOLC_UI_ERROR:        ui_state = TONG_STATE_ERROR; break;
         default:                   ui_state = TONG_STATE_IDLE; break;
         }
-        if (g_pending_volc_state == VOLC_UI_LISTENING ||
-            g_pending_volc_state == VOLC_UI_THINKING ||
-            g_pending_volc_state == VOLC_UI_SPEAKING)
-            g_reconnect_count = 0;  /* 会话真正工作过（服务端回了ASR/TTS）才重置重连计数 */
+        if (g_pending_volc_state == VOLC_UI_CONNECTED) {
+            g_reconnect_count = 0;  /* 会话健康，重置自动重连计数 */
+            if (g_volume_changed && !g_starting && !g_cancel_requested &&
+                !g_restarting) {
+                /* 音量已本地调整，服务器 system_role 里的音量快照
+                 * 过时（"查询当前音量"等回复会与实际不符）。此时
+                 * 本轮TTS已播完(CONNECTED)，在独立线程里重启会话
+                 * （原连接上重发 StartSession，不断线）。 */
+                g_volume_changed = false;
+                g_restarting = true;
+                TONG_LOG("[TONG] volume changed, restarting session on same connection\n");
+                pthread_attr_t attr;
+                pthread_attr_init(&attr);
+                pthread_attr_setstacksize(&attr, START_THREAD_STACK);
+                if (pthread_create(&g_restart_tid, &attr,
+                                   voice_restart_thread, NULL) != 0) {
+                    g_restart_tid = 0;
+                    g_restarting = false;
+                    syslog(LOG_ERR, "[TONG] restart thread create failed\n");
+                }
+                pthread_attr_destroy(&attr);
+            }
+        }
         tong_update_ui_state(ui_state, NULL);
     }
 
@@ -663,7 +695,27 @@ static void volc_timer_cb(lv_timer_t *timer)
 
 /* ========== 启动线程 (避免阻塞LVGL) ========== */
 
-#define START_THREAD_STACK (32 * 1024)
+/* 音量同步会话重启线程：在同一 WebSocket 连接上 FinishSession →
+ * 重发 StartSession（注入最新音量），不断连接、不触发 UI 断线。 */
+static void *voice_restart_thread(void *arg)
+{
+    (void)arg;
+    TONG_LOG("[TONG] session restart thread begin\n");
+    int ret = volc_voice_restart_session();
+    TONG_LOG("[TONG] session restart thread ret=%d\n", ret);
+
+    if (ret != 0) {
+        /* 重启失败：会话已结束/半死，直接触发自动重连倒计时，
+         * 由 volc_timer_cb 的既有路径重建（volc_voice_start 自带
+         * 陈旧资源清理）。不在此调 volc_voice_stop，避免与 LVGL
+         * 线程的 stop 并发 join 死锁。 */
+        syslog(LOG_WARNING,
+            "[TONG] session restart failed (%d), will reconnect\n", ret);
+        g_reconnect_ticks = RECONNECT_DELAY_TICKS;
+    }
+    g_restarting = false;
+    return NULL;
+}
 
 static void *voice_start_thread(void *arg)
 {
@@ -758,6 +810,10 @@ static void back_btn_click_handler(lv_event_t *e)
 {
     TONG_LOG("tong_ai: back button pressed\n");
 
+    /* 清除音量重启标记：避免下次进入时在会话建立后误重启 */
+    g_volume_changed = false;
+    g_restarting = false;
+
     /* 停止语音会话 */
     if (volc_voice_is_active()) {
         volc_voice_stop();
@@ -829,6 +885,9 @@ static void tong_page_deleted_cb(lv_event_t *e)
 {
     TONG_LOG("tong_ai: page deleted\n");
 
+    /* 退出小通AI页面，恢复自动熄屏（从当前时刻重新计时） */
+    display_timeout_enable();
+
     /* 停止语音会话(含异常死亡后未释放的残留资源清理) */
     volc_voice_stop();
 
@@ -845,6 +904,8 @@ static void tong_page_deleted_cb(lv_event_t *e)
     g_tong_state = TONG_STATE_IDLE;
     g_reconnect_ticks = 0;
     g_reconnect_count = 0;
+    g_volume_changed = false;
+    g_restarting = false;
 
     /* 释放pending文本缓冲区 */
     free(g_pending_error_msg);  g_pending_error_msg = NULL;
@@ -1022,6 +1083,9 @@ static void tong_ai_page_create(void)
     /* 设为IDLE状态 */
     g_tong_state = TONG_STATE_IDLE;
     tong_update_ui_state(TONG_STATE_IDLE, NULL);
+
+    /* 小通AI语音交互期间永不熄屏：挂起自动熄屏，页面删除时恢复 */
+    display_timeout_disable();
 
     TONG_LOG("tong_ai: page created\n");
 }

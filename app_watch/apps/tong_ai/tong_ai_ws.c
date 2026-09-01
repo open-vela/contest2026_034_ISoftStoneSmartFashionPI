@@ -201,6 +201,9 @@ static volatile bool s_session_active;
 static volatile bool s_interrupted;
 static pthread_t s_recv_tid;
 static pthread_t s_send_tid;
+/* 音量同步会话重启线程（volc_voice_restart_session 的调用线程），
+ * volc_voice_stop 需要 join 它避免与 TLS 资源释放竞态 */
+static pthread_t s_restart_tid;
 
 /* 音频播放 */
 static struct nxplayer_s *s_nxplayer;
@@ -473,9 +476,14 @@ static int ws_handshake(tls_ctx_t *ctx, const char *host, const char *path)
     unsigned char key_raw[16];
     unsigned char key_b64[32];
     size_t key_b64_len;
+    char connect_id[40];
     entropy_func(NULL, key_raw, sizeof(key_raw));
     mbedtls_base64_encode(key_b64, sizeof(key_b64), &key_b64_len,
         key_raw, sizeof(key_raw));
+
+    /* X-Api-Connect-Id：官方 demo 携带的连接唯一标识（UUID），服务端
+     * 在 StartConnection 响应中回带，用于链路追踪与排障 */
+    generate_uuid(connect_id, sizeof(connect_id));
 
     char req[1024];
     int n = snprintf(req, sizeof(req),
@@ -489,9 +497,10 @@ static int ws_handshake(tls_ctx_t *ctx, const char *host, const char *path)
         "X-Api-Access-Key: %s\r\n"
         "X-Api-Resource-Id: %s\r\n"
         "X-Api-App-Key: %s\r\n"
+        "X-Api-Connect-Id: %s\r\n"
         "\r\n",
         path, host, (int)key_b64_len, key_b64,
-        s_app_id, s_token, VOLC_RESOURCE, VOLC_APP_KEY);
+        s_app_id, s_token, VOLC_RESOURCE, VOLC_APP_KEY, connect_id);
 
     if (n <= 0 || n >= (int)sizeof(req)) return -EOVERFLOW;
 
@@ -767,7 +776,15 @@ static int send_start_session(tls_ctx_t *ctx, const char *session_id,
 
     /* 设备状态（电量/音量）注入到 system_role，使服务端能准确回答
      * 电量/音量查询。之前把设备状态放进 ~1200 字节的 speaking_style
-     * 导致服务端静默不回包，这里只追加一小段到 system_role。 */
+     * 导致服务端静默不回包，这里只追加一小段到 system_role。
+     *
+     * 注意：512 字节缓冲必须完整装下两段（实测总长 ≤ 508），否则
+     * snprintf 截断会静默丢失尾部约束——此前第二段达 ~900 字节，
+     * 智能家居/亮度约束从未真正送达服务端。
+     *
+     * 音量/亮度/家居指令全部在本地执行（try_volume_adjust 等），
+     * 服务端只负责人格化确认回复；这里显式禁止服务端执行指令或
+     * 修改任何参数，防止服务端 LLM 自行调节服务端音量。 */
     char system_role[512];
     int role_len = snprintf(system_role, sizeof(system_role),
         "你是小通，AI情绪能量潮玩，住在儿童智能手表里，屏幕会显示表情。"
@@ -778,17 +795,10 @@ static int send_start_session(tls_ctx_t *ctx, const char *session_id,
         int vol = watch_volume_get_percent();
         if (vol < 0) vol = 0;
         snprintf(system_role + role_len, sizeof(system_role) - role_len,
-            "当前设备状态：电量%d%%，音量%d%%。"
-            "用户询问电量或音量时请如实告知百分比，不要编造；"
-            "用户要求调音量时回复'好的，音量已调整'。"
-            "如果用户要求打开或关闭智能家居设备（电视、空调、地暖、新风、"
-            "客厅氛围灯、客厅灯、电视背景灯、玄关灯、卧室灯、卧室背景灯、"
-            "卫生间灯、窗帘等），请回复'好的，正在打开XXX'或'好的，正在关闭XXX'，"
-            "不要说没办法、无法控制或不能直接控制，这些指令已在本地执行。"
-            "如果用户要求调亮屏幕或增加亮度，请回复'好的，屏幕已调亮'。"
-            "如果用户要求调暗屏幕或降低亮度，请回复'好的，屏幕已调暗'。"
-            "如果用户要求亮度调到最大或最亮，请回复'好的，亮度已调到最亮'。"
-            "如果用户要求亮度调到最小或最暗，请回复'好的，亮度已调到最暗'。",
+            "设备状态：电量%d%%，音量%d%%。"
+            "音量/亮度/家居指令已本地执行，服务端禁止修改任何参数："
+            "调音量回复'好的，音量已调整'；调亮度回复'好的，屏幕已调亮/调暗'；"
+            "家居回复'好的，正在打开/关闭XXX'。",
             bat, vol);
     }
 
@@ -913,6 +923,11 @@ static void capture_release_frame(struct ap_buffer_s *apb);
 
 static int capture_init(void)
 {
+    /* 幂等：已初始化直接返回，避免并发路径（send 线程与 restart
+     * 线程）重复 RESERVE 设备造成旧 fd 泄漏或占用冲突 */
+    if (s_cap_fd >= 0)
+        return 0;
+
     int fd = open(CAPTURE_DEVICE, O_RDWR | O_CLOEXEC);
     if (fd < 0) {
         syslog(LOG_ERR, "[%s] open(%s): %d\n", TAG, CAPTURE_DEVICE, errno);
@@ -1089,6 +1104,13 @@ static int playback_init(void)
     return 0;
 }
 
+/* 下行 PCM 响度对齐表情潮玩 E2E 模式：E2E 播放前对 PCM 做了 1.5x
+ * 软件增益（volc_e2e_tts.c E2E_PCM_GAIN 3/2，补偿服务器下行 PCM 偏轻）。
+ * 小通 TTS 与 E2E 同音色（jupiter）、同 volume_ratio=2.0，若不加同样
+ * 的增益，同硬件音量下小通明显比 E2E 轻。 */
+#define TONG_PCM_GAIN_NUM 3
+#define TONG_PCM_GAIN_DEN 2
+
 static void playback_write(const unsigned char *data, size_t len)
 {
     if (s_pcm_buf && s_playing) {
@@ -1098,8 +1120,12 @@ static void playback_write(const unsigned char *data, size_t len)
             const int16_t *mono = (const int16_t *)data;
             int16_t *stereo = (int16_t *)(s_pcm_buf + s_pcm_len);
             for (size_t i = 0; i < num_samples; i++) {
-                stereo[i * VOLC_I2S_CHANNELS] = mono[i];
-                stereo[i * VOLC_I2S_CHANNELS + 1] = mono[i];
+                int32_t v = (int32_t)mono[i] * TONG_PCM_GAIN_NUM
+                            / TONG_PCM_GAIN_DEN;
+                if (v > 32767) v = 32767;
+                else if (v < -32768) v = -32768;
+                stereo[i * VOLC_I2S_CHANNELS] = (int16_t)v;
+                stereo[i * VOLC_I2S_CHANNELS + 1] = (int16_t)v;
             }
             s_pcm_len += out_len;
         }
@@ -1309,7 +1335,28 @@ static void *recv_thread(void *arg)
 
         case EVENT_SESSION_FINISHED:
             syslog(LOG_INFO, "[%s] SessionFinished\n", TAG);
-            s_session_active = false;
+            {
+                /* 仅当属于当前会话时才置停：会话重启期间旧会话的
+                 * SessionFinished 可能晚于新 SessionStarted 到达，
+                 * 误置会把刚建立的新会话标停（send 线程退出）。 */
+                bool ours = true;
+                if (plen > 0 && s_session_id[0] != '\0') {
+                    char *json = strndup((const char *)payload, plen);
+                    if (json) {
+                        cJSON *root = cJSON_Parse(json);
+                        if (root) {
+                            cJSON *sid = cJSON_GetObjectItem(root, "session_id");
+                            if (cJSON_IsString(sid) &&
+                                strcmp(sid->valuestring, s_session_id) != 0)
+                                ours = false;
+                            cJSON_Delete(root);
+                        }
+                        free(json);
+                    }
+                }
+                if (ours)
+                    s_session_active = false;
+            }
             break;
 
         case EVENT_SESSION_FAILED:
@@ -1453,8 +1500,13 @@ static void *recv_thread(void *arg)
                     cJSON *root = cJSON_Parse(json);
                     if (root) {
                         cJSON *content = cJSON_GetObjectItem(root, "content");
-                        if (cJSON_IsString(content))
+                        if (cJSON_IsString(content)) {
+                            /* 打印 E2E 模型输出内容，与 [TONG] ASR 日志
+                             * 对照，排查"输出与实际调节不一致"问题 */
+                            syslog(LOG_INFO, "[%s] AI: \"%s\"\n", TAG,
+                                   content->valuestring);
                             notify_ui(VOLC_CB_AI_TEXT, content->valuestring);
+                        }
                         cJSON_Delete(root);
                     }
                     free(json);
@@ -1667,7 +1719,14 @@ static void *send_thread(void *arg)
     free(silence_buf);
     capture_stop();
     capture_deinit();
-    session_dead("send closed");
+
+    /* 仅异常退出才通知会话死亡：循环因 s_running/s_session_active
+     * 被外部置停而退出（会话重启、停止）属正常流程，此时若调
+     * session_dead 会把 s_running 清掉，打断正在进行的同连接
+     * 会话重启（restart aborted → 回退断线重连）。 */
+    if (s_running && s_session_active)
+        session_dead("send closed");
+
     syslog(LOG_INFO, "[%s] send thread exit\n", TAG);
     return NULL;
 }
@@ -1821,16 +1880,104 @@ fail:
     return -EIO;
 }
 
+/* 在同一 WebSocket 连接上重启会话（不断 TCP/TLS）：
+ * FinishSession → 重发 StartSession（注入最新电量/音量）。
+ * 火山协议允许 FinishSession 后复用连接，重新从 StartSession 开始。
+ * 阻塞直到新会话建立或超时；调用方应放在独立线程。 */
+int volc_voice_restart_session(void)
+{
+    int ret = -EINVAL;
+
+    /* 记录本线程，volc_voice_stop 会 join 等待，避免与 TLS 资源
+     * 释放竞态 */
+    s_restart_tid = pthread_self();
+
+    if (!s_running || !s_tls || s_tls->net.fd < 0) {
+        s_restart_tid = 0;
+        return -EINVAL;
+    }
+
+    /* 先置停旧会话：send 线程（循环条件含 s_session_active）退出
+     * 并自行 capture_stop/deinit，避免本线程与它并发操作采集设备。
+     * 不依赖服务器回 SessionFinished，重启等待最短化。 */
+    s_session_active = false;
+    if (s_send_tid) {
+        pthread_join(s_send_tid, NULL);
+        s_send_tid = 0;
+    }
+
+    if (!s_running) {
+        syslog(LOG_WARNING, "[%s] restart aborted (stopped)\n", TAG);
+        goto out_capture;
+    }
+
+    /* 结束旧会话（火山协议：FinishSession 后连接保持，可复用连接
+     * 重新 StartSession），稍等服务器处理完成 */
+    send_finish_session(s_tls, s_session_id);
+    usleep(200000);
+
+    /* 新 session_id + 重发 StartSession（system_role 注入最新设备状态） */
+    generate_uuid(s_session_id, sizeof(s_session_id));
+    syslog(LOG_INFO, "[%s] session_id=%s\n", TAG, s_session_id);
+    ret = send_start_session(s_tls, s_session_id, s_speaker);
+    if (ret != 0) {
+        syslog(LOG_ERR, "[%s] restart StartSession failed: %d\n", TAG, ret);
+        goto out_capture;
+    }
+
+    /* 等 SessionStarted（recv 线程置 s_session_active=true） */
+    for (int i = 0; i < 100 && s_running && !s_session_active; i++)
+        usleep(100000);
+    if (!s_running || !s_session_active) {
+        syslog(LOG_ERR, "[%s] restart SessionStarted timeout\n", TAG);
+        ret = -ETIMEDOUT;
+        goto out_capture;
+    }
+
+    /* 重启 send 线程，继续上传音频（新 send 线程会自己 capture_init） */
+    if (pthread_create(&s_send_tid, NULL, send_thread, NULL) != 0) {
+        s_send_tid = 0;
+        syslog(LOG_ERR, "[%s] restart send thread create failed\n", TAG);
+        ret = -EAGAIN;
+        goto out_capture;
+    }
+
+    syslog(LOG_INFO, "[%s] session restarted for volume sync\n", TAG);
+    s_restart_tid = 0;
+    /* 成功路径直接返回：out_capture 的 capture_init 只服务失败路径，
+     * 成功时再初始化一次会造成采集设备双重 RESERVE */
+    return 0;
+
+out_capture:
+    /* 失败路径：旧 send 线程已回收、采集已停，重新拉起采集避免
+     * 静默（随后的自动重连会接管并做 cleanup） */
+    if (s_running) {
+        if (capture_init() == 0)
+            capture_start();
+        else
+            syslog(LOG_WARNING, "[%s] restart capture reinit failed\n", TAG);
+    }
+    s_restart_tid = 0;
+    return ret;
+}
+
 void volc_voice_stop(void)
 {
     bool was_running = s_running;
 
+    /* 先置停：让音量同步重启线程的等待循环尽快退出，再 join 它，
+     * 避免与 TLS 资源释放竞态（也缩短 join 等待时间） */
+    s_running = false;
+    s_session_active = false;
+
+    if (s_restart_tid && !pthread_equal(s_restart_tid, pthread_self())) {
+        pthread_join(s_restart_tid, NULL);
+        s_restart_tid = 0;
+    }
+
     /* 未启动，或异常死亡后资源已由 volc_voice_start 清理 */
     if (!was_running && !s_tls)
         return;
-
-    s_running = false;
-    s_session_active = false;
 
     if (s_recv_tid) { pthread_join(s_recv_tid, NULL); s_recv_tid = 0; }
     if (s_send_tid) { pthread_join(s_send_tid, NULL); s_send_tid = 0; }

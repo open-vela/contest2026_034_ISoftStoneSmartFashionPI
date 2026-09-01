@@ -24,8 +24,8 @@
 
 #include <nuttx/config.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <lvgl/lvgl.h>
-#include <nuttx/power/axp2101.h>
 #include <syslog.h>
 
 #include "settings.h"
@@ -40,6 +40,38 @@
 #define UI_MODE_LOG(fmt, ...) syslog(LOG_INFO, "[UI_MODE] " fmt, ##__VA_ARGS__)
 
 /****************************************************************************
+ * Private Types
+ ****************************************************************************/
+
+struct switch_ctx {
+    ui_mode_t target;
+    lv_obj_t *parent;
+};
+
+/****************************************************************************
+ * Private Functions
+ ****************************************************************************/
+
+/**
+ * @brief 异步执行 UI 模式切换（由 lv_async_call 在事件链结束后回调）
+ *
+ * ui_mode_switch_runtime 涉及 LVGL 对象删除/创建和阻塞文件 I/O
+ * （SPI flash littlefs 写入），不能放在 LV_EVENT_CLICKED 回调中
+ * 同步执行，否则可能死锁 LVGL 线程。
+ */
+static void async_do_switch(void *arg)
+{
+    struct switch_ctx *ctx = (struct switch_ctx *)arg;
+
+    UI_MODE_LOG("Switching to expression UI mode (runtime, async)");
+    int ret = ui_mode_switch_runtime(ctx->target, ctx->parent);
+    if (ret != 0)
+        UI_MODE_LOG("Failed to switch to expression mode: %d", ret);
+
+    free(ctx);
+}
+
+/****************************************************************************
  * Public Functions
  ****************************************************************************/
 
@@ -51,13 +83,15 @@
  */
 void settings_ui_mode_event_cb(lv_event_t *e)
 {
-  if (lv_event_get_code(e) == LV_EVENT_CLICKED)
+    if (lv_event_get_code(e) == LV_EVENT_CLICKED)
     {
-      UI_MODE_LOG("Switching to expression UI mode (runtime)");
-      int ret = ui_mode_switch_runtime(UI_MODE_EXPRESSION, lv_scr_act());
-      if (ret != 0)
-        {
-          UI_MODE_LOG("Failed to switch to expression mode: %d", ret);
-        }
+        struct switch_ctx *ctx = malloc(sizeof(*ctx));
+        if (!ctx) return;
+        ctx->target = UI_MODE_EXPRESSION;
+        ctx->parent = lv_scr_act();
+
+        /* 延迟到事件回调链结束：避免在 LVGL 事件回调中同步执行
+         * 对象删除、文件 I/O 等重操作 */
+        lv_async_call(async_do_switch, ctx);
     }
 }

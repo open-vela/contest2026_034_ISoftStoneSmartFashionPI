@@ -203,25 +203,51 @@ static uint8_t get_battery_percentage(void)
     return axp2101_get_pmu_soc();
 }
 
-/* 根据电量百分比获取电量图标索引 (0-4) */
+/* 根据电量百分比获取电量图标索引 (0-4)
+ * 分段：0-20%→0(一格) 21-40%→1(两格) 41-60%→2(三格)
+ *       61-80%→3(四格) 81-100%→4(满格) */
 static int get_battery_icon_index(uint8_t percent)
 {
-    if (percent >= 80) return 4;
-    else if (percent >= 60) return 3;
-    else if (percent >= 40) return 2;
-    else if (percent >= 20) return 1;
+    if (percent > 80) return 4;
+    else if (percent > 60) return 3;
+    else if (percent > 40) return 2;
+    else if (percent > 20) return 1;
     else return 0;
 }
 
 /* 按充电状态+电量选当前电量图标：
- * 充电中(axp2101 charge_status==1)显示带闪电的一套，否则显示普通一套。
+ * 充电器插着(VBUS在位)显示带闪电的一套，否则显示普通一套。
+ * 用 VBUS 位而非 6:5 充电状态位——满电后 PMIC 进入停充/待机，
+ * 6:5 位会变但充电器仍插着，图标不应切回非充电。
  * 充电图资源缺失时回退普通图标。 */
+static bool s_last_charging = false;
+static int  s_last_bat_idx  = -1;
+
 static const void *current_battery_icon(uint8_t percent)
 {
     int idx = get_battery_icon_index(percent);
-    bool charging = (axp2101_get_pmu_charge_status() == 1);
-    const void *img = charging ? charging_images[idx]
+    bool charging = (axp2101_get_vbus_status() != 0);
+
+    /* 充电图标（chg_*）比非充电图标（bat_*）多画了一格——
+     * 比如 bat_2=2格、chg_2=3格。充电时 idx 减一对齐：
+     * 0-20%→chg_0=1格（充电中最少一格），81-100%→chg_3=4格。 */
+    int chg_idx = idx - 1;
+    if (chg_idx < 0) chg_idx = 0;
+
+    const void *img = charging ? charging_images[chg_idx]
                                : battery_images[idx];
+
+    /* 图标选择变化时打一条日志，便于实测核对 VBUS/分段行为 */
+    if (charging != s_last_charging || idx != s_last_bat_idx)
+    {
+        DIAL_LOG("battery icon: soc=%u%% idx=%d charging=%d chg_status=%u vbus=%u",
+                 (unsigned)percent, idx, charging,
+                 (unsigned)axp2101_get_pmu_charge_status(),
+                 (unsigned)axp2101_get_vbus_status());
+        s_last_charging = charging;
+        s_last_bat_idx  = idx;
+    }
+
     return img ? img : battery_images[idx];
 }
 
