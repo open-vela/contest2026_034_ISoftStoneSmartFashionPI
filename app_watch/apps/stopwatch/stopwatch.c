@@ -84,7 +84,7 @@ static void stopwatch_app_create(void)
     lv_obj_set_style_border_width(start_btn, 0, LV_STATE_DEFAULT);
     lv_obj_set_style_radius(start_btn, 30, LV_STATE_DEFAULT);
     lv_obj_set_style_shadow_width(start_btn, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_align(start_btn, LV_ALIGN_TOP_LEFT, 35, 363);
+    lv_obj_align(start_btn, LV_ALIGN_TOP_LEFT, 25, 350);
     lv_obj_t *start_btn_label = lv_label_create(start_btn);
     lv_label_set_text(start_btn_label, "开始");
     lv_obj_set_style_text_font(start_btn_label, vw_resource_get_font(WATCH_REGULAR_FONT "_32"), 0);
@@ -100,7 +100,7 @@ static void stopwatch_app_create(void)
     lv_obj_set_style_border_width(reset_btn, 0, LV_STATE_DEFAULT);
     lv_obj_set_style_radius(reset_btn, 30, LV_STATE_DEFAULT);
     lv_obj_set_style_shadow_width(reset_btn, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_align(reset_btn, LV_ALIGN_TOP_LEFT, 225, 363);
+    lv_obj_align(reset_btn, LV_ALIGN_TOP_LEFT, 205, 350);
     lv_obj_t *reset_btn_label = lv_label_create(reset_btn);
     lv_label_set_text(reset_btn_label, "归零");
     lv_obj_set_style_text_font(reset_btn_label, vw_resource_get_font(WATCH_REGULAR_FONT "_32"), 0);
