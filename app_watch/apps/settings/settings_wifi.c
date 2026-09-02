@@ -92,6 +92,7 @@ static bool g_has_pending_connect = false;  // 用户连接请求被重连阻塞
 static volatile bool g_abort_reconnect = false;  // 通知重连线程中止
 static char g_pending_ssid[64] = {0};  // 待连接的SSID
 static char g_pending_pwd[64] = {0};  // 待连接的密码
+static time_t g_pending_connect_time = 0;  // 排队连接请求的时间戳（用于超时兜底）
 static time_t g_connect_time = 0;  // 连接建立时间
 static int g_status_fail_count = 0;  // 连续状态检查失败次数
 static int g_reconnect_retry = 0;  // 重连重试计数
@@ -355,35 +356,57 @@ static int wifi_connect(const char *ifname, const char *ssid, const char *passwo
     ret = system(command);
     WATCH_DBG_LOG("[WiFi]   ret=%d", ret);
     usleep(300000);  /* 300ms 等待驱动断开旧关联 */
-    
-    /* 1. 确保接口已启用（已UP时为no-op，不影响驱动状态） */
-    snprintf(command, sizeof(command), "ifup %s", ifname);
-    WATCH_DBG_LOG("[WiFi] CMD: %s", command);
-    ret = system(command);
-    WATCH_DBG_LOG("[WiFi]   ret=%d", ret);
-    usleep(300000);  /* 300ms */
-    
+    if (g_abort_reconnect) { WATCH_DBG_LOG("[WiFi] wifi_connect aborted after step 0"); return -1; }
+
+    /* 1. 确保接口已启用（已UP时跳过ifup，避免接口已up时ifup卡数十秒） */
+    {
+        bool need_ifup = true;
+        int chk_sock = socket(AF_INET, SOCK_DGRAM, 0);
+        if (chk_sock >= 0) {
+            struct ifreq ifr;
+            memset(&ifr, 0, sizeof(ifr));
+            strncpy(ifr.ifr_name, ifname, sizeof(ifr.ifr_name) - 1);
+            if (ioctl(chk_sock, SIOCGIFFLAGS, &ifr) == 0 && (ifr.ifr_flags & IFF_UP)) {
+                need_ifup = false;
+            }
+            close(chk_sock);
+        }
+        if (need_ifup) {
+            snprintf(command, sizeof(command), "ifup %s", ifname);
+            WATCH_DBG_LOG("[WiFi] CMD: %s", command);
+            ret = system(command);
+            WATCH_DBG_LOG("[WiFi]   ret=%d", ret);
+            usleep(300000);  /* 300ms */
+        } else {
+            WATCH_DBG_LOG("[WiFi] Interface %s already up, skipping ifup", ifname);
+        }
+    }
+    if (g_abort_reconnect) { WATCH_DBG_LOG("[WiFi] wifi_connect aborted after step 1"); return -1; }
+
     /* 2. 设置 WiFi 模式为 Managed (Station) */
     snprintf(command, sizeof(command), "wapi mode %s 2", ifname);
     WATCH_DBG_LOG("[WiFi] CMD: %s", command);
     ret = system(command);
     WATCH_DBG_LOG("[WiFi]   ret=%d", ret);
     usleep(200000);  /* 200ms */
-    
+    if (g_abort_reconnect) { WATCH_DBG_LOG("[WiFi] wifi_connect aborted after step 2"); return -1; }
+
     /* 3. 设置 PSK 密码（CCMP/AES + WPA2，现代路由器默认配置） */
     snprintf(command, sizeof(command), "wapi psk %s \"%s\" 3 2", ifname, password);
     WATCH_DBG_LOG("[WiFi] CMD: wapi psk %s \"***\" 3 2 (pwd_len=%d)", ifname, (int)strlen(password));
     ret = system(command);
     WATCH_DBG_LOG("[WiFi]   ret=%d", ret);
     usleep(200000);  /* 200ms */
-    
+    if (g_abort_reconnect) { WATCH_DBG_LOG("[WiFi] wifi_connect aborted after step 3"); return -1; }
+
     /* 4. 设置 ESSID（触发关联） */
     snprintf(command, sizeof(command), "wapi essid %s \"%s\" 1", ifname, ssid);
     WATCH_DBG_LOG("[WiFi] CMD: %s", command);
     ret = system(command);
     WATCH_DBG_LOG("[WiFi]   ret=%d", ret);
     usleep(2000000);  /* 2s 等待驱动完成关联 */
-    
+    if (g_abort_reconnect) { WATCH_DBG_LOG("[WiFi] wifi_connect aborted after step 4"); return -1; }
+
     /* 5. 启动 DHCP 获取 IP 地址 */
     snprintf(command, sizeof(command), "ifconfig %s dhcp", ifname);
     WATCH_DBG_LOG("[WiFi] CMD: %s", command);
@@ -1012,6 +1035,10 @@ static void *wifi_reconnect_thread(void *arg)
              */
             bool synced = false;
             for (int i = 0; i < 30; i++) {
+                if (g_abort_reconnect) {
+                    WATCH_DBG_LOG("[WiFi] NTP sync aborted by user connection request");
+                    break;
+                }
                 struct ntpc_status_s st;
                 memset(&st, 0, sizeof(st));
                 if (ntpc_status(&st) == 0 && st.nsamples > 0) {
@@ -1239,9 +1266,18 @@ static void wifi_connect_check_timer_cb(lv_timer_t *timer)
 
     /* 场景1: 用户连接被重连阻塞，等待重连结束后启动 */
     if (g_has_pending_connect) {
-        /* 重连仍在进行，继续等待 */
+        /* 重连仍在进行，继续等待；加超时兜底防止重连线程卡死导致永久等待 */
         if (g_is_reconnecting) {
-            return;
+            time_t now = time(NULL);
+            if (g_pending_connect_time > 0 && now - g_pending_connect_time > 15) {
+                WATCH_DBG_LOG("[WiFi] Pending connect wait TIMEOUT (>%lds), forcing reconnect flag clear: %s",
+                       (long)(now - g_pending_connect_time), g_pending_ssid);
+                g_is_reconnecting = false;
+                g_abort_reconnect = true;  /* 确保重连线程后续能退出 */
+                /* 落到下方逻辑立即启动用户连接 */
+            } else {
+                return;
+            }
         }
 
         /* 重连已结束，启动用户的待连接 */
@@ -1312,6 +1348,7 @@ static void wifi_start_connect_thread(const char *ssid, const char *password)
         strncpy(g_pending_pwd, password, sizeof(g_pending_pwd) - 1);
         g_pending_pwd[sizeof(g_pending_pwd) - 1] = '\0';
         g_has_pending_connect = true;
+        g_pending_connect_time = time(NULL);  /* 记录排队时间，用于超时兜底 */
         g_abort_reconnect = true;  /* 通知重连线程中止 */
 
         /* 启动定时器检查重连是否结束，结束后自动启动用户连接 */
