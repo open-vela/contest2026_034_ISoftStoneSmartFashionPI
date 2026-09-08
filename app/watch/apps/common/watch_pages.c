@@ -84,6 +84,16 @@ static lv_obj_t   *s_expr_gif     = NULL;  /* 表情GIF控件 */
 static int         s_curr_index   = 0;     /* 当前表情索引 */
 static int         s_expr_count   = 0;     /* 表情图片总数 */
 
+/* set_face 去重状态：当前显示的 GIF 索引 + 是否持久（无恢复定时器）。
+ * 双切链路（motion 预设 → agent PROACTIVE 重设同一张脸）每次都会
+ * 让 GIF 从第 0 帧重播，观感为表情"切换两次"；watch_expression_
+ * page_set_face 里据此跳过重复的持久同脸请求。restore_timer_cb
+ * 恢复 excited、deinit 重建页面时同步。int 读写在 32 位平台原子，
+ * 跨线程竞态的后果只是偶发多播一次，与 s_restore_duration_ms 的
+ * 现有跨线程风格一致。 */
+static int         s_cur_gif_index  = -1;
+static bool        s_cur_persistent = false;
+
 /* 页面栈：用于跟踪二级/三级子页面 */
 static lv_obj_t **s_page_stack = NULL;
 static int       s_page_stack_size = 0;
@@ -262,6 +272,10 @@ void watch_expression_page_deinit(lv_obj_t *page_obj)
   s_expr_gif   = NULL;
   s_curr_index = 0;
   s_expr_count = 0;
+  /* 去重状态同步重置：页面重建后会加载首张 GIF，
+   * 旧记录不再反映屏上内容 */
+  s_cur_gif_index = -1;
+  s_cur_persistent = false;
 
   /* 删除页面根容器（同时销毁子控件） */
   if (page_obj != NULL)
@@ -403,6 +417,9 @@ static void restore_timer_cb(lv_timer_t *timer)
     for (size_t i = 0; i < FACE_MAP_SIZE; i++) {
         if (strcmp(s_face_map[i].face_id, "excited") == 0) {
             switch_to_expression(s_face_map[i].gif_index);
+            /* 同步去重状态：当前已是 excited（持久显示） */
+            s_cur_gif_index = s_face_map[i].gif_index;
+            s_cur_persistent = true;
             break;
         }
     }
@@ -432,11 +449,28 @@ int watch_expression_page_set_face(const char* face_id, int duration_ms)
         return -1;
     }
 
+    /* 同脸去重：当前已持久显示该表情（无恢复定时器）且本次也是
+     * 持久请求 → 跳过。否则 GIF 会从第 0 帧重播，用户看到表情
+     * "切换两次"——跌倒/扶正/电量提醒链路都是双切模式：motion
+     * 线程（或注入方）立即预设 sick/proud，agent PROACTIVE 分支
+     * 在 LLM 回合后（约 3-4 秒）再设同一张脸。
+     * 带时长的请求（duration>0）永不去重：它必须刷新恢复定时器；
+     * timed→persistent 的同脸请求也不去重：它必须取消定时器。 */
+    if (gif_index == s_cur_gif_index && s_cur_persistent
+        && duration_ms == 0) {
+        PAGE_LOG("set_face: %s already showing, skip restart",
+                 face_id);
+        return 0;
+    }
+
     PAGE_LOG("set_face: %s -> index %d, duration=%dms",
              face_id, gif_index, duration_ms);
 
     /* 记录恢复时长（LVGL线程会读取并创建定时器） */
     s_restore_duration_ms = duration_ms;
+    /* 同步去重状态（async 回调消费 s_restore_duration_ms） */
+    s_cur_gif_index = gif_index;
+    s_cur_persistent = (duration_ms == 0);
 
     /* 在 LVGL 线程中执行表情切换 + 创建恢复定时器 */
     lv_async_call(set_face_async_cb, (void*)(intptr_t)gif_index);
