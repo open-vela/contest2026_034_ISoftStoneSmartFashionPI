@@ -28,6 +28,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <sys/time.h>
+#include <syslog.h>
 
 #include <lvgl/lvgl.h>
 
@@ -55,6 +56,10 @@ int main(int argc, FAR char *argv[])
 {
     lv_nuttx_dsc_t info;
     lv_nuttx_result_t result;
+
+    /* 开机卡logo取证：SD syslog 重定向前此行走console（无串口则丢），
+     * 之后进 app.log。日志停在 entry 后 = 显示/资源初始化卡死。 */
+    syslog(LOG_INFO, "[MAIN] watch main: entry");
 
     /* 显式设置东八区时区，确保本进程的 mktime()/localtime() 按 CST-8 处理。
      * 板级 bringup 虽设置了 TZ，但本应用进程未必继承；若不设置，
@@ -126,17 +131,18 @@ int main(int argc, FAR char *argv[])
 
     /* 初始化资源管理（加载开机logo和动画帧数据） */
     watch_resource_init();
+    syslog(LOG_INFO, "[MAIN] display+resources ready");
 
     /* WiFi开机自动初始化：在开机动画期间完成WiFi连接 */
     settings_wifi_auto_init();
 
     /* 启动物理按键监控（BOOT长按进入设置，PWR短按返回主页） */
     watch_button_monitor_init();
+    syslog(LOG_INFO, "[MAIN] wifi+button init done");
 
     /* 启动开机logo → 开机动画流程 */
-    //printf("[MAIN] Calling launcher_init...\n");
     launcher_init(lv_scr_act());
-    //printf("[MAIN] launcher_init completed\n");
+    syslog(LOG_INFO, "[MAIN] launcher init done");
 
     /* 进入LVGL事件循环 */
     //printf("[MAIN] Entering LVGL event loop\n");

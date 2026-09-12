@@ -74,6 +74,11 @@
 
 #ifdef CONFIG_WATCHDOG
 #  include "esp32s3_board_wdt.h"
+#  include <nuttx/timers/watchdog.h>
+#endif
+
+#ifdef CONFIG_AXP2101
+#  include <nuttx/power/axp2101.h>
 #endif
 
 #ifdef CONFIG_INPUT_BUTTONS
@@ -110,17 +115,106 @@
  *   file handles (e.g. "cat /mnt/sd/syslog/app.log").
  ****************************************************************************/
 
+#if defined(CONFIG_SYSLOG_FILE) && defined(CONFIG_ESP32S3_SDMMC)
+/* SDMMC 命令超时计数（nuttx esp32s3_sdmmc.c 定义）。超时路径里静默
+ * 自增，由本任务在 lock-free 上下文上报——否则在 FatFs 锁下打日志
+ * 会自死锁，历史上已炸过一次。 */
+extern volatile uint32_t g_esp32s3_sdmmc_timeout_count;
+#endif
+
 static int syslog_flush_task(int argc, FAR char *argv[])
 {
+  int pwr_ticks = 0;
+#if defined(CONFIG_SYSLOG_FILE) && defined(CONFIG_ESP32S3_SDMMC)
+  uint32_t last_sd_to = 0;
+#endif
+
   while (1)
     {
       sleep(5);  /* Flush every 5 seconds */
       syslog_flush();
+
+#if defined(CONFIG_SYSLOG_FILE) && defined(CONFIG_ESP32S3_SDMMC)
+      /* SDMMC 命令超时计数变化 → 立即上报。这是"SD 卡命令超时→锁雪崩"
+      * 冻结假说的直接证据。 */
+
+      if (g_esp32s3_sdmmc_timeout_count != last_sd_to)
+        {
+          syslog(LOG_WARNING, "[PWR] SDMMC cmd timeouts: %u\n",
+                 g_esp32s3_sdmmc_timeout_count);
+          last_sd_to = g_esp32s3_sdmmc_timeout_count;
+        }
+#endif
+
+#ifdef CONFIG_AXP2101
+      /* 电源遥测每 30s：若冻结前出现 chg/vbus 振荡或掉电，即电源问题实锤。
+       * chg: 0=待机(充满) 1=充电中 2=放电(未插电)；vbus: 0=未插电 1=插电。 */
+
+      if (++pwr_ticks >= 6)
+        {
+          pwr_ticks = 0;
+          syslog(LOG_INFO, "[PWR] soc=%u%% chg=%u vbus=%u\n",
+                 axp2101_get_pmu_soc(),
+                 axp2101_get_pmu_charge_status(),
+                 axp2101_get_vbus_status());
+        }
+#endif
     }
 
   return OK;
 }
 #endif /* CONFIG_SYSLOG_FILE */
+
+#if defined(CONFIG_WATCHDOG) && defined(CONFIG_ESP32S3_MWDT1)
+/****************************************************************************
+ * Name: wdt_feed_task
+ *
+ * Description:
+ *   MWDT1 watchdog feeder: 20s timeout, feed every 5s.  The feeder only
+ *   does sleep+ioctl (no FS / no locks / no malloc), so:
+ *
+ *   - System-level freeze (scheduler or interrupts dead)  -> feeder starves
+ *     -> MWDT1 resets the chip -> next boot logs reset_reason=0x08 MWDT1.
+ *   - Plain thread deadlock (other threads stuck, scheduler alive)
+ *     -> feeder keeps feeding -> no reset (device stays frozen for the
+ *     user to inspect).  The presence/absence of an MWDT1 reset therefore
+ *     distinguishes "CPU-level freeze" from "thread-level deadlock".
+ ****************************************************************************/
+
+static int wdt_feed_task(int argc, FAR char *argv[])
+{
+  int fd = open("/dev/watchdog1", O_RDONLY);
+  if (fd < 0)
+    {
+      syslog(LOG_ERR, "[WDT] open /dev/watchdog1 failed: %d\n", errno);
+      return OK;
+    }
+
+  if (ioctl(fd, WDIOC_SETTIMEOUT, 20000) < 0)
+    {
+      syslog(LOG_ERR, "[WDT] MWDT1 set timeout failed: %d\n", errno);
+      close(fd);
+      return OK;
+    }
+
+  if (ioctl(fd, WDIOC_START, 0) < 0)
+    {
+      syslog(LOG_ERR, "[WDT] MWDT1 start failed: %d\n", errno);
+      close(fd);
+      return OK;
+    }
+
+  syslog(LOG_INFO, "[WDT] MWDT1 armed (20s timeout, 5s feed)\n");
+
+  while (1)
+    {
+      sleep(5);
+      ioctl(fd, WDIOC_KEEPALIVE, 0);
+    }
+
+  return OK;
+}
+#endif /* CONFIG_WATCHDOG && CONFIG_ESP32S3_MWDT1 */
 
 #ifdef CONFIG_ESP32S3_WATCH_SENSOR_QMI8658
 #  include <nuttx/sensors/qmi8658.h>
@@ -128,10 +222,41 @@ static int syslog_flush_task(int argc, FAR char *argv[])
 
 #include "esp32s3_gpio.h"
 
+#include "esp32s3_reset_reasons.h"
+
 #include "esp32s3-touch-amoled.h"
 
 /* 调试打印 — 统一使用 syslog 输出到 SD 卡 */
 #define WATCH_DBG_LOG(fmt, ...) syslog(LOG_INFO, fmt, ##__VA_ARGS__)
+
+/* 卡logo/冻结取证：开机复位原因。RTC 寄存器保持到下次复位，bringup
+ * 入口先读（console 期一条，无串口则丢），SD syslog 重定向后再补一条落盘。 */
+static soc_reset_reason_t g_last_reset_reason = RESET_REASON_CHIP_POWER_ON;
+
+static const char *reset_reason_str(soc_reset_reason_t r)
+{
+  switch (r)
+    {
+      case RESET_REASON_CHIP_POWER_ON:   return "POR/BOR/SuperWDT";
+      case RESET_REASON_CORE_SW:         return "SW core (reboot/panic?)";
+      case RESET_REASON_CORE_DEEP_SLEEP: return "deep sleep";
+      case RESET_REASON_CORE_MWDT0:      return "MWDT0 watchdog";
+      case RESET_REASON_CORE_MWDT1:      return "MWDT1 watchdog (system freeze!)";
+      case RESET_REASON_CORE_RTC_WDT:    return "RTC WDT core";
+      case RESET_REASON_CPU0_MWDT0:      return "MWDT0 CPU0 watchdog";
+      case RESET_REASON_CPU0_SW:         return "SW CPU0 (manual reboot?)";
+      case RESET_REASON_CPU0_RTC_WDT:    return "RTC WDT CPU0";
+      case RESET_REASON_SYS_BROWN_OUT:   return "BrownOut (power!)";
+      case RESET_REASON_SYS_RTC_WDT:     return "RTC WDT system";
+      case RESET_REASON_CPU0_MWDT1:      return "MWDT1 CPU0 watchdog";
+      case RESET_REASON_SYS_SUPER_WDT:   return "SuperWDT system";
+      case RESET_REASON_SYS_CLK_GLITCH:  return "Clock glitch";
+      case RESET_REASON_CORE_USB_UART:   return "USB UART";
+      case RESET_REASON_CORE_USB_JTAG:   return "USB JTAG";
+      case RESET_REASON_CORE_PWR_GLITCH: return "Power glitch!";
+      default:                           return "unknown";
+    }
+}
 
 #ifdef CONFIG_ESP32S3_FLASH_MODE_OCT
 void esp32s3_bsp_opiflash_set_required_regs(void)
@@ -336,6 +461,13 @@ static int sdmmc_mount_task(int argc, FAR char *argv[])
 
           syslog(LOG_INFO, "Syslog file channel: /mnt/sd/syslog/app.log\n");
           syslog_flush();
+
+          /* Boot context 落盘：上次复位原因（冻结取证关键证据）。 */
+
+          syslog(LOG_INFO, "Boot context: reset_reason=0x%02x (%s)\n",
+                 (int)g_last_reset_reason,
+                 reset_reason_str(g_last_reset_reason));
+          syslog_flush();
         }
     }
   else
@@ -369,6 +501,13 @@ static int sdmmc_mount_task(int argc, FAR char *argv[])
 int esp32s3_bringup(void)
 {
   int ret;
+
+  /* 卡logo取证：此阶段 syslog 尚未重定向到SD，只走console
+   * （无串口则丢）。接串口时用于区分 bringup 内卡死的设备。 */
+  g_last_reset_reason = esp32s3_reset_reasons(0);
+  syslog(LOG_INFO, "[BOOT] reset_reason=0x%02x (%s)\n",
+         (int)g_last_reset_reason, reset_reason_str(g_last_reset_reason));
+  syslog(LOG_INFO, "[BRINGUP] board bringup: start\n");
 
 #ifdef CONFIG_FS_PROCFS
   /* Mount the procfs file system */
@@ -417,6 +556,18 @@ int esp32s3_bringup(void)
     {
       syslog(LOG_ERR, "Failed to initialize watchdog timer: %d\n", ret);
     }
+#ifdef CONFIG_ESP32S3_MWDT1
+  else
+    {
+      /* MWDT1 冻结自动复位 + reset_reason 留痕（取证判据）。 */
+
+      ret = task_create("wdt_feed", 100, 2048, wdt_feed_task, NULL);
+      if (ret < 0)
+        {
+          syslog(LOG_ERR, "ERROR: Failed to start wdt_feed task: %d\n", ret);
+        }
+    }
+#endif /* CONFIG_ESP32S3_MWDT1 */
 #endif
 
 #ifdef CONFIG_I2C_DRIVER
@@ -624,5 +775,6 @@ int esp32s3_bringup(void)
    */
 
   UNUSED(ret);
+  syslog(LOG_INFO, "[BRINGUP] board bringup: done\n");
   return OK;
 }

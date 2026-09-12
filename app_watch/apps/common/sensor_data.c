@@ -3,7 +3,7 @@
  * 传感器数据获取公共模块实现
  *
  * 单定时器架构: 一次读传感器，同时判断抬腕亮屏和摔倒检测
- * 抬腕: az从正翻转到负 (从下往上翻转)，仅在灭屏+开关开启时触发
+ * 抬腕: 静止记重力参考，抬腕时重力矢量大幅旋转(>阈值)即触发（佩戴朝向无关）
  * 摔倒: 陀螺仪瞬间剧烈变化 (静止g≈0-2, 摔倒g>300)，始终检测
  * 互斥: 一个触发后更新对方冷却时间，防止同时触发
  */
@@ -35,8 +35,9 @@
 
 #define GRAVITY_1G               5.5f
 
-#define GYRO_ROTATION_THRESH     15.0f
 #define WRIST_RAISE_COOLDOWN_MS  3000
+#define GYRO_STILL_THRESH        10.0f   /* 静止判定：陀螺仪幅值 < 10 dps */
+#define GRAVITY_ROTATE_DEV       0.8f    /* 重力矢量偏差 >0.8g ≈ 抬腕旋转 >47° */
 #define FALL_GYRO_THRESH         500.0f
 #define FALL_AZ_CHANGE_THRESH    0.8f
 #define FALL_WINDOW_MS           800
@@ -59,6 +60,10 @@ static lv_timer_t *g_sensor_monitor_timer = NULL;
 static uint64_t g_wrist_raise_last_trigger = 0;
 static uint64_t g_fall_last_trigger = 0;
 static float g_last_az = -1.0f;
+static float g_ref_ax = 0.0f;   /* 抬腕重力参考矢量（垂腕方向，佩戴朝向无关） */
+static float g_ref_ay = 0.0f;
+static float g_ref_az = 0.0f;
+static bool  g_ref_valid = false;
 static uint64_t g_fall_z_up_time = 0;
 
 static int g_step_count = 0;
@@ -107,6 +112,7 @@ int sensor_data_init(void)
 
     g_sensor_initialized = true;
     g_last_az = -1.0f;
+    g_ref_valid = false;
     SENSOR_LOG("Sensor data module initialized");
     return 0;
 }
@@ -173,7 +179,7 @@ int sensor_data_read(sensor_imu_data_t *data)
 
 /**
  * 统一传感器监控定时器
- * 一次读传感器, 同时判断抬腕亮屏(az正→负)和摔倒(gyro>300)
+ * 一次读传感器, 同时判断抬腕亮屏(重力旋转)和摔倒(gyro>300)
  */
 static void sensor_monitor_timer_cb(lv_timer_t *timer)
 {
@@ -186,7 +192,10 @@ static void sensor_monitor_timer_cb(lv_timer_t *timer)
                            data.gyro.y * data.gyro.y +
                            data.gyro.z * data.gyro.z);
 
+    float ax_now = data.accel.x;
+    float ay_now = data.accel.y;
     float az_now = data.accel.z;
+
     float az_prev = g_last_az;
     g_last_az = az_now;
 
@@ -197,8 +206,22 @@ static void sensor_monitor_timer_cb(lv_timer_t *timer)
 
     uint64_t now = sensor_get_time_ms();
 
-    bool z_up   = (az_prev > 0.3f  && az_now < -0.3f);
-    bool has_rot = (gyro_mag > GYRO_ROTATION_THRESH);
+    /* 抬腕亮屏：静止时（陀螺仪幅值小）记录重力参考矢量（佩戴朝向无关），
+     * 抬腕时陀螺仪冲高→参考被冻结，当前重力与参考的偏差超过阈值即触发。
+     * 这样既容忍慢速抬腕（中间过渡采样不漏），也适配任意佩戴朝向。 */
+    if (gyro_mag < GYRO_STILL_THRESH) {
+        g_ref_ax = ax_now;
+        g_ref_ay = ay_now;
+        g_ref_az = az_now;
+        g_ref_valid = true;
+    }
+
+    float dax = ax_now - g_ref_ax;
+    float day = ay_now - g_ref_ay;
+    float daz = az_now - g_ref_az;
+    float grav_dev = sqrtf(dax * dax + day * day + daz * daz);
+    bool raised = (g_ref_valid && grav_dev > GRAVITY_ROTATE_DEV);
+
     bool gyro_high = (gyro_mag > FALL_GYRO_THRESH);
     float az_change = fabsf(az_now - az_prev);
 
@@ -213,11 +236,10 @@ static void sensor_monitor_timer_cb(lv_timer_t *timer)
         sensor_step_counter_update(&data);
     }
 
-    // printf("[SM] az=%.2f->%.2f z_up=%d a=%.2f g=%.2f rot=%d fall=%d fw=%d\n",
-    //        az_prev, az_now, z_up, accel_mag,
-    //        gyro_mag, has_rot, fall_cond, in_fall_window);
+    // printf("[SM] dev=%.2f raised=%d gyro=%.2f fall=%d fw=%d\n",
+    //        grav_dev, raised, gyro_mag, fall_cond, in_fall_window);
 
-    if (z_up && has_rot && g_wrist_raise_enabled && getchange() == 2) {
+    if (raised && g_wrist_raise_enabled && getchange() == 2) {
         if (now - g_wrist_raise_last_trigger > WRIST_RAISE_COOLDOWN_MS) {
             g_wrist_raise_last_trigger = now;
             g_fall_last_trigger = now;
@@ -225,6 +247,7 @@ static void sensor_monitor_timer_cb(lv_timer_t *timer)
             setchange(1);
             ft3168_display_timeout_setup();
             SENSOR_LOG("[WRIST] Screen on");
+            g_ref_valid = false;  /* 触发后复位参考，待再次静止重建 */
         }
     }
 
@@ -235,71 +258,6 @@ static void sensor_monitor_timer_cb(lv_timer_t *timer)
             g_fall_z_up_time = 0;
         }
     }
-}
-
-bool sensor_detect_wrist_raise(void)
-{
-    sensor_imu_data_t data;
-    if (sensor_data_read(&data) != 0) {
-        return false;
-    }
-
-    float gyro_mag = sqrtf(data.gyro.x * data.gyro.x +
-                           data.gyro.y * data.gyro.y +
-                           data.gyro.z * data.gyro.z);
-
-    float az_now = data.accel.z;
-    float az_prev = g_last_az;
-    g_last_az = az_now;
-
-    bool z_up = (az_prev > 0.3f && az_now < -0.3f);
-    bool has_rotation = (gyro_mag > GYRO_ROTATION_THRESH);
-
-    if (z_up && has_rotation) {
-        uint64_t now = sensor_get_time_ms();
-        if (now - g_wrist_raise_last_trigger > WRIST_RAISE_COOLDOWN_MS) {
-            g_wrist_raise_last_trigger = now;
-            return true;
-        }
-    }
-
-    return false;
-}
-
-bool sensor_detect_fall(void)
-{
-    sensor_imu_data_t data;
-    if (sensor_data_read(&data) != 0) {
-        return false;
-    }
-
-    float gyro_mag = sqrtf(data.gyro.x * data.gyro.x +
-                           data.gyro.y * data.gyro.y +
-                           data.gyro.z * data.gyro.z);
-
-    float az_now = data.accel.z;
-    float az_prev = g_last_az;
-    g_last_az = az_now;
-
-    float az_change = fabsf(az_now - az_prev);
-    bool gyro_high = (gyro_mag > FALL_GYRO_THRESH);
-
-    if (az_change > FALL_AZ_CHANGE_THRESH && g_step_paused) {
-        g_fall_z_up_time = sensor_get_time_ms();
-    }
-
-    uint64_t now = sensor_get_time_ms();
-    bool in_fall_window = (g_fall_z_up_time > 0 && now - g_fall_z_up_time <= FALL_WINDOW_MS);
-
-    if (in_fall_window && gyro_high && g_step_paused) {
-        if (now - g_fall_last_trigger > FALL_COOLDOWN_MS) {
-            g_fall_last_trigger = now;
-            g_fall_z_up_time = 0;
-            return true;
-        }
-    }
-
-    return false;
 }
 
 void sensor_step_counter_reset(void)

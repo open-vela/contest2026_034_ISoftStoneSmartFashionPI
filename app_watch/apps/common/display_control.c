@@ -96,6 +96,11 @@ void ft3168_display_timeout_setup(void)
         esp32s3_display_on();
         g_screen_off = false;
         g_change = 0;
+
+        /* 程序化亮屏（抬腕/闹钟）没有触摸，lv_disp_get_inactive_time 仍是
+         * 熄屏前的旧值，若不重置，下一个 timeout 周期会立即再熄屏。 */
+        lv_disp_t *disp = lv_disp_get_default();
+        if (disp) lv_display_trigger_activity(disp);
     }
 }
 
