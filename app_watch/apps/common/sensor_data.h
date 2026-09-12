@@ -31,9 +31,6 @@ int sensor_data_init(void);
 void sensor_data_deinit(void);
 int sensor_data_read(sensor_imu_data_t *data);
 
-bool sensor_detect_wrist_raise(void);
-bool sensor_detect_fall(void);
-
 void sensor_step_counter_reset(void);
 int sensor_step_counter_get_steps(void);
 float sensor_step_counter_get_distance(void);

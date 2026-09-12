@@ -39,6 +39,7 @@
 #include <time.h>
 
 #include <nuttx/power/axp2101.h>
+#include <nuttx/lcd/co5300.h>   /* esp32s3_display_on（待机/熄屏中亮屏播报） */
 
 #include "watch_pages.h"
 #include "../home_control/home_control.h"
@@ -590,9 +591,12 @@ static void battery_proactive_remind(int kind, uint8_t soc)
       return;
     }
 
-  /* 待机场景（180s 无交互表情页已隐藏）→ 唤醒表情页播报 */
-  if (watch_expression_page_is_hidden())
+  /* 待机/熄屏场景（无交互已进入 standby）→ 唤醒表情页并亮屏播报。
+   * 旧待机是隐藏表情页（is_hidden）；新待机是 standby 表情或
+   * 已熄屏，统一用 wake gate 关闭判定（gate 关 = 待机/熄屏）。 */
+  if (voice_channel_is_wake_gated())
     {
+      esp32s3_display_on();
       watch_expression_page_show();
       s_remind_woke_page = true;
       PAGE_LOG("[BATTERY] standby → show page for remind");
@@ -674,7 +678,11 @@ static void battery_timer_cb(lv_timer_t *timer)
         {
           if (voice_channel_is_wake_gated())
             {
-              watch_expression_page_hide();
+              /* 待机已从“隐藏表情页”改为“固定 standby 表情”：恢复
+               * 待机脸（而非 hide），与 idle 生命周期进入的待机视觉
+               * 一致。若原本已熄屏，这里保持亮屏停在待机脸直到用户
+               * 唤醒——低电量属于紧急事件，亮屏留观是合理代价 */
+              watch_expression_page_set_face("standby", 0);
               PAGE_LOG("[BATTERY] remind done, back to standby");
             }
           else

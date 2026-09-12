@@ -39,6 +39,7 @@
 #include "../volume_control/volume_control.h"
 #include "apps/settings/settings_wifi.h"  /* 使用手表UI的WiFi设置头文件 */
 #include "voice/voice_channel.h"
+#include <nuttx/lcd/co5300.h>   /* esp32s3_display_off/on（熄屏/亮屏） */
 
 /* 调试打印 — 统一使用 syslog 输出到 SD 卡 */
 #define WATCH_DBG_LOG(fmt, ...) syslog(LOG_INFO, fmt, ##__VA_ARGS__)
@@ -86,35 +87,83 @@ static bool g_agent_started = false;      /* ai_agent 任务已拉起（防重�
 static void anim_check_timer_cb(lv_timer_t *timer);
 static void logo_check_timer_cb(lv_timer_t *timer);
 
-/* 空闲超时标志：voice_channel 线程设置，LVGL 定时器轮询并执行 hide */
-static volatile bool g_idle_timeout_pending = false;
+/* 开机卡logo取证心跳：LVGL 主循环存活证据。卡logo时若心跳仍在打印
+ * 而界面不动 = UI 逻辑问题；心跳停 = 主循环或全系统冻结，取 app.log
+ * 最后一条日志定位冻结点。前60秒每5秒一跳，之后自删避免常态噪声。 */
+static void boot_heartbeat_cb(lv_timer_t *timer)
+{
+  static int beats = 0;
+  struct timespec ts;
+
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  WATCH_DBG_LOG("[LAUNCHER] LVGL alive #%d t=%lus",
+                ++beats, (unsigned long)ts.tv_sec);
+
+  if (beats >= 12)
+    {
+      lv_timer_del(timer);
+    }
+}
+
+/* 空闲事件标志：voice_channel 线程设置待处理事件，LVGL 定时器
+ * 轮询并执行 UI 动作（表情切换/熄屏必须在 LVGL 主线程做） */
+static volatile int g_idle_evt_pending = 0;
 
 /* 小通AI活跃状态检查（避免对话期间黑屏） */
 extern bool tong_ai_is_active(void);
 
-static void on_idle_timeout(void)
+static void on_idle_event(int event)
 {
-  /* 小通AI页面打开时，不隐藏表情页（tong_ai 有自己的音频通路，
+  /* 小通AI页面打开时，不进入表情页待机（tong_ai 有自己的音频通路，
    * voice_channel 检测不到其语音活动，会误判为空闲） */
   if (tong_ai_is_active()) {
     return;
   }
-  g_idle_timeout_pending = true;
+  g_idle_evt_pending = event;
 }
 
-static void idle_timeout_poll_cb(lv_timer_t *timer)
+static void idle_event_poll_cb(lv_timer_t *timer)
 {
-  if (g_idle_timeout_pending) {
-    g_idle_timeout_pending = false;
-    watch_expression_page_hide();
+  int evt = g_idle_evt_pending;
+  if (evt == 0) {
+    return;
   }
+  g_idle_evt_pending = 0;
+
+  switch (evt)
+    {
+      case VOICE_IDLE_EVT_STANDBY:
+        /* 待机显示：固定 standby 表情（页面保持可见，GIF 动画
+         * 照常循环播放，仅不再切换其他表情） */
+        watch_expression_page_set_face("standby", 0);
+        break;
+
+      case VOICE_IDLE_EVT_SCREEN_OFF:
+        /* 熄屏：终形态。语音监听继续，唤醒词可恢复 */
+        esp32s3_display_off();
+        break;
+
+      case VOICE_IDLE_EVT_COMPANION:
+      default:
+        /* 陪伴无 UI 动作：TTS 播放自动切 speaking 脸，说完回 listening */
+        break;
+    }
+}
+
+/* 唤醒恢复动作（LVGL 主线程）：亮屏 + 显示表情页。
+ * 从熄屏状态唤醒时点亮屏幕；屏幕已亮时调用无害 */
+static void wake_show_async_cb(void *unused)
+{
+  (void)unused;
+  esp32s3_display_on();
+  watch_expression_page_show();
 }
 
 /* 唤醒词检测回调：由 voice_channel conversation_thread 调用 */
 static void on_wake_detected(void)
 {
-  /* 在 LVGL 主线程中显示表情 */
-  lv_async_call((lv_async_cb_t)watch_expression_page_show, NULL);
+  /* 在 LVGL 主线程中点亮屏幕并显示表情页 */
+  lv_async_call(wake_show_async_cb, NULL);
 }
 
 /**
@@ -133,10 +182,10 @@ static void agent_autostart(void)
     }
   g_agent_started = true;
 
-  /* 注册唤醒词回调 + 空闲超时回调 + LVGL 轮询定时器 */
+  /* 注册唤醒词回调 + 空闲生命周期事件回调 + LVGL 轮询定时器 */
   voice_channel_set_wake_notify(on_wake_detected);
-  voice_channel_set_idle_timeout_cb(on_idle_timeout);
-  lv_timer_create(idle_timeout_poll_cb, 2000, NULL);
+  voice_channel_set_idle_event_cb(on_idle_event);
+  lv_timer_create(idle_event_poll_cb, 2000, NULL);
 
   static char *agent_argv[] = { "auto", NULL };
   int pid = task_create("ai_agent", AGENT_TASK_PRIORITY,
@@ -267,7 +316,10 @@ static void goto_next_state(void)
         /* 切换到显示logo状态 */
         current_state = STATE_SHOW_LOGO;
 
-        /* 尽早读取UI模式，选择对应的开机logo */
+        /* 尽早读取UI模式，选择对应的开机logo。
+         * 入口日志：ui_mode.json 在 /mnt/spif（littlefs/SPI flash），
+         * 若卡在读写另一侧实锤 SPI flash 并发死锁。 */
+        WATCH_DBG_LOG("[LAUNCHER] loading ui_mode.json");
         g_boot_ui_mode = ui_mode_load();
         ui_mode_set_current(g_boot_ui_mode);
         WATCH_DBG_LOG("[LAUNCHER] Boot UI mode: %d (0=expression, 1=watch)",
@@ -276,6 +328,7 @@ static void goto_next_state(void)
         /* 恢复上次持久化的音量（/mnt/spif/volume.json），
          * 避免重启后回退到板级默认值 */
         watch_volume_restore();
+        WATCH_DBG_LOG("[LAUNCHER] volume restored");
 
         if (current_obj != NULL)
           {
@@ -291,6 +344,7 @@ static void goto_next_state(void)
             current_obj = boot_logo_init(content_area);
           }
         lv_task_handler();
+        WATCH_DBG_LOG("[LAUNCHER] logo displayed");
 
         /* 周期性检测logo GIF是否播完，播完立即切换（最长等待 LOGO_DISPLAY_TIME） */
         logo_wait_ms = 0;
@@ -300,6 +354,7 @@ static void goto_next_state(void)
       case STATE_SHOW_LOGO:
         /* 切换到显示动画状态 */
         current_state = STATE_SHOW_ANIM;
+        WATCH_DBG_LOG("[LAUNCHER] state: logo done -> animation");
 
         /* 销毁logo并显示动画（根据UI模式选择对应的动画） */
         if (g_boot_ui_mode == UI_MODE_WATCH)
@@ -313,6 +368,7 @@ static void goto_next_state(void)
             current_obj = boot_animation_init(content_area);
           }
         lv_task_handler();
+        WATCH_DBG_LOG("[LAUNCHER] anim displayed");
 
         /* 动画播放期间后台拉起 ai_agent（仅表情UI模式需要）
          * 手表UI模式不需要 ai_agent，跳过以加快开机速度 */
@@ -329,6 +385,7 @@ static void goto_next_state(void)
       case STATE_SHOW_ANIM:
         /* 动画播放完成，切换到主界面 */
         current_state = STATE_SHOW_CLOCK;
+        WATCH_DBG_LOG("[LAUNCHER] state: anim done -> main UI");
 
         /* 销毁动画（根据UI模式选择对应的销毁函数） */
         if (g_boot_ui_mode == UI_MODE_WATCH)
@@ -356,6 +413,7 @@ static void goto_next_state(void)
             current_obj = (lv_obj_t *)watch_expression_page_init(
               content_area);
           }
+        WATCH_DBG_LOG("[LAUNCHER] main UI page ready");
 
         /* 启动电池电量周期监控：开机立即检测一次，之后每60秒检测，
          * 电量低于20%时播报低电量语音（watch_battery_check_start 内部
@@ -398,6 +456,11 @@ static void anim_check_timer_cb(lv_timer_t *timer)
 
   if (finished || anim_wait_ms >= ANIMATION_DISPLAY_TIME)
     {
+      if (!finished)
+        {
+          WATCH_DBG_LOG("[LAUNCHER] anim GIF unfinished after %ums, "
+                        "forcing switch", anim_wait_ms);
+        }
       lv_timer_del(timer);
       goto_next_state();
     }
@@ -420,6 +483,11 @@ static void logo_check_timer_cb(lv_timer_t *timer)
 
   if (finished || logo_wait_ms >= LOGO_DISPLAY_TIME)
     {
+      if (!finished)
+        {
+          WATCH_DBG_LOG("[LAUNCHER] logo GIF unfinished after %ums, "
+                        "forcing switch", logo_wait_ms);
+        }
       lv_timer_del(timer);
       goto_next_state();
     }
@@ -449,6 +517,10 @@ int launcher_init(lv_obj_t *parent)
 
   /* 启动开机流程 */
   current_state = STATE_INIT;
+
+  /* 卡logo取证心跳（boot_heartbeat_cb 内60秒后自删） */
+  lv_timer_create(boot_heartbeat_cb, 5000, NULL);
+
   goto_next_state();
 
   return 0;
