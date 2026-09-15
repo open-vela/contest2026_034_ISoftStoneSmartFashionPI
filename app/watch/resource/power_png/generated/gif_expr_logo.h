@@ -1,9 +1,21 @@
-/** Auto-generated from 表情开机logo-gif.gif */
-#ifndef __GIF_EXPR_LOGO_H__
-#define __GIF_EXPR_LOGO_H__
+/**
+ * gif_expr_logo asset declaration.
+ * Auto-generated from expr_logo.gif - DO NOT EDIT
+ */
+
+#ifndef ____GIF_EXPR_LOGO_H____
+#define ____GIF_EXPR_LOGO_H____
 
 #include "lvgl/lvgl.h"
 
-extern const lv_image_dsc_t gif_expr_logo;
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-#endif /* __GIF_EXPR_LOGO_H__ */
+LV_IMAGE_DECLARE(gif_expr_logo);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* ____GIF_EXPR_LOGO_H____ */
