@@ -101,7 +101,7 @@ static void init_devices(void)
     devices[3] = (home_device_t){"新风", vw_resource_get_img("icon_home_new_trend"), false, false, false};
     devices[4] = (home_device_t){"客厅氛围灯", vw_resource_get_img("icon_home_room_ambient_light"), false, false, false};
     devices[5] = (home_device_t){"客厅灯", vw_resource_get_img("icon_home_room_light"), false, false, false};
-    devices[6] = (home_device_t){"电视背景灯", vw_resource_get_img("icon_home_TV_bg_light"), false, false, false};
+    devices[6] = (home_device_t){"厨房灯", vw_resource_get_img("icon_home_TV_bg_light"), false, false, false};
     devices[7] = (home_device_t){"玄关灯", vw_resource_get_img("icon_home_entrance_light"), false, false, false};
     devices[8] = (home_device_t){"卧室灯", vw_resource_get_img("icon_home_bedroom_light"), false, false, false};
     devices[9] = (home_device_t){"卧室背景灯", vw_resource_get_img("icon_home_bedroom_backlight"), false, false, false};
