@@ -1,0 +1,1586 @@
+From 826a67f93d0d20ca7ba1616628c89764e2ef4e1d Mon Sep 17 00:00:00 2001
+From: cgke <cgke@isoftstone.com>
+Date: Tue, 15 Sep 2026 21:40:30 +0800
+Subject: [PATCH] =?UTF-8?q?nxplayer/nxrecorder:=20=E7=A7=BB=E6=A4=8D?=
+ =?UTF-8?q?=E5=86=85=E9=83=A8=E4=BB=93=E4=BF=AE=E5=A4=8D=EF=BC=88bug?=
+ =?UTF-8?q?=E4=BF=AE=E5=A4=8D=E3=80=81=E6=92=AD=E6=94=BE=E8=AF=BB=E5=8F=96?=
+ =?UTF-8?q?=E9=80=BB=E8=BE=91=E3=80=81ES7210/ES8210=E3=80=81WAV=E5=BD=95?=
+ =?UTF-8?q?=E9=9F=B3=EF=BC=89?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Change-Id: I6a2a6d84c52873e058ae16bae663b6891ab62d19
+---
+ include/system/nxplayer.h           |   8 +
+ include/system/nxrecorder.h         |  48 +++
+ system/nxplayer/nxplayer.c          | 642 ++++++++++++++++++++++++++--
+ system/nxplayer/nxplayer_main.c     |   2 +-
+ system/nxrecorder/CMakeLists.txt    |   6 +
+ system/nxrecorder/Makefile          |   6 +
+ system/nxrecorder/nxrecorder.c      | 142 ++++--
+ system/nxrecorder/nxrecorder_main.c |  19 +-
+ system/nxrecorder/nxrecorder_wav.c  | 282 ++++++++++++
+ 9 files changed, 1062 insertions(+), 93 deletions(-)
+ create mode 100644 system/nxrecorder/nxrecorder_wav.c
+
+diff --git a/include/system/nxplayer.h b/include/system/nxplayer.h
+index 8d612d7b5..424b1cdaa 100644
+--- a/include/system/nxplayer.h
++++ b/include/system/nxplayer.h
+@@ -90,6 +90,14 @@ struct nxplayer_s
+ 
+   FAR const struct nxplayer_dec_ops_s *ops;
+   struct nxplayer_tone_s tone;
++
++  /* PSRAM-based PCM pre-read cache for eliminating file I/O during playback */
++
++  FAR uint8_t    *pcm_cache;                   /* PSRAM pre-read buffer */
++  uint32_t        pcm_cache_size;              /* Valid data size in cache */
++  uint32_t        pcm_cache_pos;               /* Current read offset */
++  uint32_t        pcm_cache_cap;               /* Total cache buffer capacity */
++  bool            pcm_cache_eof;               /* True when file fully read */
+ };
+ 
+ typedef int (*nxplayer_func)(FAR struct nxplayer_s *pplayer, char *pargs);
+diff --git a/include/system/nxrecorder.h b/include/system/nxrecorder.h
+index 4b2c2ac96..eb7145501 100644
+--- a/include/system/nxrecorder.h
++++ b/include/system/nxrecorder.h
+@@ -64,6 +64,15 @@ struct nxrecorder_s
+ #endif
+ 
+   FAR const struct nxrecorder_enc_ops_s *ops;
++
++  /* WAV recording support */
++
++  uint32_t        datasize;                /* Total data size recorded */
++  uint32_t        samplerate;              /* Sample rate */
++  uint8_t         nchannels;               /* Number of channels */
++  uint8_t         bpsamp;                  /* Bits per sample */
++  bool            is_wav;                  /* Is WAV file recording */
++  char            filepath[CONFIG_NAME_MAX]; /* Recorded file path for cleanup */
+ };
+ 
+ typedef int (*nxrecorder_func)(FAR struct nxrecorder_s *precorder,
+@@ -188,6 +197,45 @@ int nxrecorder_recordinternal(FAR struct nxrecorder_s *precorder,
+                               uint8_t nchannels, uint8_t bpsamp,
+                               uint32_t samprate, uint8_t chmap);
+ 
++/****************************************************************************
++ * Name: nxrecorder_write_wav
++ *
++ *   Write WAV file header to the recording file.
++ *
++ * Input Parameters:
++ *   fd        - File descriptor of the recording file
++ *   samplerate - Sample rate
++ *   chans     - Number of channels
++ *   bps       - Bits per sample
++ *
++ * Returned Value:
++ *   OK if WAV header written successfully, error code otherwise.
++ *
++ ****************************************************************************/
++
++int nxrecorder_write_wav(int fd, uint32_t samplerate,
++                         uint8_t chans, uint8_t bps);
++
++/****************************************************************************
++ * Name: nxrecorder_update_wav
++ *
++ *   Update WAV file header with the actual data size when recording stops.
++ *
++ * Input Parameters:
++ *   fd        - File descriptor of the recording file
++ *   samplerate - Sample rate
++ *   chans     - Number of channels
++ *   bps       - Bits per sample
++ *   datasize  - Total data size recorded
++ *
++ * Returned Value:
++ *   OK if WAV header updated successfully, error code otherwise.
++ *
++ ****************************************************************************/
++
++int nxrecorder_update_wav(int fd, uint32_t samplerate,
++                         uint8_t chans, uint8_t bps, uint32_t datasize);
++
+ /****************************************************************************
+  * Name: nxrecorder_stop
+  *
+diff --git a/system/nxplayer/nxplayer.c b/system/nxplayer/nxplayer.c
+index ee290de78..147870070 100644
+--- a/system/nxplayer/nxplayer.c
++++ b/system/nxplayer/nxplayer.c
+@@ -83,10 +83,15 @@ struct nxplayer_ext_fmt_s
+ };
+ #endif
+ 
+-/****************************************************************************
++/**************************************************************************** 
+  * Private Function Prototypes
+  ****************************************************************************/
+ 
++#ifdef CONFIG_AUDIO_FORMAT_PCM
++static int nxplayer_parse_wav(int fd, FAR uint32_t *samplerate,
++                              FAR uint8_t *chans, FAR uint8_t *bps);
++#endif
++
+ #ifdef CONFIG_AUDIO_FORMAT_MIDI
+ int nxplayer_getmidisubformat(int fd);
+ #endif
+@@ -156,10 +161,144 @@ static const struct nxplayer_dec_ops_s g_dec_ops[] =
+ 
+ #endif /* CONFIG_NXPLAYER_FMT_FROM_EXT */
+ 
+-/****************************************************************************
++/**************************************************************************** 
+  * Private Functions
+  ****************************************************************************/
+ 
++/**************************************************************************** 
++ * Name: nxplayer_parse_wav
++ *
++ *   Parse WAV file header to get audio parameters.
++ *
++ ****************************************************************************/
++
++#ifdef CONFIG_AUDIO_FORMAT_PCM
++
++/* Read a little-endian value from a byte buffer, avoiding any alignment
++ * assumptions.  WAV files are always little-endian.
++ */
++
++static inline uint16_t get_le16(FAR const uint8_t *p)
++{
++  return (uint16_t)p[0] | ((uint16_t)p[1] << 8);
++}
++
++static inline uint32_t get_le32(FAR const uint8_t *p)
++{
++  return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
++         ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
++}
++
++static int nxplayer_parse_wav(int fd, FAR uint32_t *samplerate,
++                              FAR uint8_t *chans, FAR uint8_t *bps)
++{
++  uint8_t  buf[16];
++  bool     have_fmt  = false;
++  bool     have_data = false;
++  int      ret;
++
++  /* Read and validate the 12-byte RIFF header: "RIFF" <size> "WAVE" */
++
++  lseek(fd, 0, SEEK_SET);
++  ret = read(fd, buf, 12);
++  if (ret < 12)
++    {
++      return -EIO;
++    }
++
++  if (buf[0] != 'R' || buf[1] != 'I' || buf[2] != 'F' || buf[3] != 'F' ||
++      buf[8] != 'W' || buf[9] != 'A' || buf[10] != 'V' || buf[11] != 'E')
++    {
++      return -EINVAL;
++    }
++
++  /* Scan the chunks that follow the RIFF/WAVE header (starting at offset
++   * 12).  Each chunk begins with an 8-byte header: 4-byte chunk id and a
++   * 4-byte little-endian chunk length.  This makes parsing robust against
++   * WAV files that contain extra chunks (JUNK/LIST/bext/fact ...) placed
++   * between the RIFF header and the fmt/data chunks.
++   */
++
++  for (; ; )
++    {
++      uint32_t chunklen;
++
++      /* Read the 8-byte chunk header (id + length) */
++
++      ret = read(fd, buf, 8);
++      if (ret < 8)
++        {
++          break;
++        }
++
++      chunklen = get_le32(&buf[4]);
++
++      if (buf[0] == 'f' && buf[1] == 'm' && buf[2] == 't' && buf[3] == ' ')
++        {
++          uint8_t fmt[16];
++
++          /* The fmt chunk must carry at least 16 bytes of format data */
++
++          if (chunklen < 16)
++            {
++              return -EINVAL;
++            }
++
++          if (read(fd, fmt, sizeof(fmt)) < (int)sizeof(fmt))
++            {
++              return -EIO;
++            }
++
++          /* fmt layout: format(2) channels(2) samplerate(4) byterate(4)
++           * blockalign(2) bitspersample(2)
++           */
++
++          *chans      = (uint8_t)get_le16(&fmt[2]);
++          *samplerate = get_le32(&fmt[4]);
++          *bps        = (uint8_t)get_le16(&fmt[14]);
++          have_fmt    = true;
++
++          /* Skip any extra fmt bytes beyond the standard 16 (plus pad) */
++
++          if (chunklen > 16)
++            {
++              lseek(fd, (off_t)(chunklen - 16) + (chunklen & 1),
++                    SEEK_CUR);
++            }
++        }
++      else if (buf[0] == 'd' && buf[1] == 'a' &&
++               buf[2] == 't' && buf[3] == 'a')
++        {
++          /* The file pointer is now positioned exactly at the start of the
++           * PCM audio samples.  Leave it here so the caller can pre-read
++           * the audio data directly.
++           */
++
++          have_data = true;
++          break;
++        }
++      else
++        {
++          /* Unknown chunk: skip its payload (chunks are word-aligned, so
++           * account for a trailing pad byte when the length is odd).
++           */
++
++          if (lseek(fd, (off_t)chunklen + (chunklen & 1), SEEK_CUR) < 0)
++            {
++              return -EIO;
++            }
++        }
++    }
++
++  if (!have_fmt || !have_data)
++    {
++      return -EINVAL;
++    }
++
++  return OK;
++}
++#endif
++
+ /****************************************************************************
+  ****************************************************************************/
+ 
+@@ -202,7 +341,7 @@ static int _open_with_http(const char *fullurl)
+ 
+   if (OK != n)
+     {
+-      printf("netlib_parsehttpurl() returned %d\n", n);
++      auderr("netlib_parsehttpurl() returned %d\n", n);
+       return n;
+     }
+ 
+@@ -707,6 +846,121 @@ static int nxplayer_readbuffer(FAR struct nxplayer_s *pplayer,
+ {
+   int ret;
+ 
++  /* If we have a pre-loaded PSRAM cache, serve data from it instead of
++   * reading from the file. This eliminates all file I/O during playback,
++   * preventing LVGL/LittleFS SPI bus contention from starving the audio
++   * pipeline.
++   */
++
++  if (pplayer->pcm_cache != NULL)
++    {
++      uint32_t remaining;
++      uint32_t to_copy;
++
++      /* Calculate how much data is left in the cache */
++
++      remaining = pplayer->pcm_cache_size - pplayer->pcm_cache_pos;
++
++      /* If the current cache chunk is exhausted, either finish (EOF) or
++       * refill it from the file. Refilling happens synchronously in the
++       * playthread; with a deep audio buffer pool this brief blocking
++       * read does not cause an underrun.
++       */
++
++      if (remaining == 0)
++        {
++          if (pplayer->pcm_cache_eof || pplayer->fd < 0)
++            {
++              /* No more data. Signal end-of-stream with FINAL flag. */
++
++              audinfo("cache exhausted, eof reached\n");
++              apb->nbytes  = 0;
++              apb->curbyte = 0;
++              apb->flags  |= AUDIO_APB_FINAL;
++              return -ENODATA;
++            }
++
++          /* Cache exhausted - refill the entire buffer from the file in
++           * one loop (same as the initial fill). This avoids the periodic
++           * memmove of the incremental top-up path, which held the SPI bus
++           * for tens of milliseconds and starved the I2S DMA, producing
++           * audible glitches.
++           */
++
++          {
++            size_t total_read = 0;
++
++            while (total_read < pplayer->pcm_cache_cap)
++              {
++                size_t chunk = pplayer->pcm_cache_cap - total_read;
++                if (chunk > 8192) chunk = 8192;
++                ssize_t nread = read(pplayer->fd,
++                                     pplayer->pcm_cache + total_read,
++                                     chunk);
++                if (nread <= 0)
++                  {
++                    break;  /* EOF (0) or error (-1) */
++                  }
++
++                total_read += (size_t)nread;
++              }
++
++            if (total_read == 0)
++              {
++                /* True EOF or error - signal end-of-stream. */
++
++                audinfo("refill read failed, eof reached\n");
++                pplayer->pcm_cache_eof = true;
++                apb->nbytes  = 0;
++                apb->curbyte = 0;
++                apb->flags  |= AUDIO_APB_FINAL;
++                return -ENODATA;
++              }
++
++            pplayer->pcm_cache_size = (uint32_t)total_read;
++            pplayer->pcm_cache_pos  = 0;
++            pplayer->pcm_cache_eof  =
++              (total_read < pplayer->pcm_cache_cap);
++
++            audinfo("refill %lu/%lu bytes, eof=%d\n",
++                   (unsigned long)total_read,
++                   (unsigned long)pplayer->pcm_cache_cap,
++                   pplayer->pcm_cache_eof);
++
++            remaining = pplayer->pcm_cache_size;
++          }
++        }
++
++      /* Copy as much as fits in the audio buffer */
++
++      to_copy = remaining;
++      if (to_copy > apb->nmaxbytes)
++        {
++          to_copy = apb->nmaxbytes;
++        }
++
++      memcpy(apb->samp, pplayer->pcm_cache + pplayer->pcm_cache_pos,
++             to_copy);
++      apb->nbytes  = to_copy;
++      apb->curbyte = 0;
++      apb->flags   = 0;
++
++      pplayer->pcm_cache_pos += to_copy;
++
++      /* If this is the last chunk of the whole file, mark it as FINAL */
++
++      if (pplayer->pcm_cache_pos >= pplayer->pcm_cache_size &&
++          pplayer->pcm_cache_eof)
++        {
++          apb->flags |= AUDIO_APB_FINAL;
++          audinfo("PSRAM cache exhausted, marking FINAL\n");
++        }
++
++      return OK;
++    }
++
++  /* No PSRAM cache — use the original file-based read path */
++
+   /* Validate the file is still open.  It will be closed automatically when
+    * we encounter the end of file (or, perhaps, a read error that we cannot
+    * handle.
+@@ -854,8 +1108,6 @@ static FAR void *nxplayer_playthread(pthread_addr_t pvarg)
+   if ((ret = ioctl(pplayer->dev_fd, AUDIOIOC_GETBUFFERINFO,
+                   (unsigned long)&buf_info)) != OK)
+     {
+-      /* Driver doesn't report its buffer size.  Use our default. */
+-
+       buf_info.buffer_size = CONFIG_AUDIO_BUFFER_NUMBYTES;
+       buf_info.nbuffers = CONFIG_AUDIO_NUM_BUFFERS;
+     }
+@@ -1059,17 +1311,36 @@ static FAR void *nxplayer_playthread(pthread_addr_t pvarg)
+     {
+       /* Wait for a signal either from the Audio driver that it needs
+        * additional buffer data, or from a user-space signal to pause,
+-       * stop, etc.
++       * stop, etc. Use timed receive with 100ms timeout so we can
++       * detect stop requests even if the mq is congested.
+        */
+ 
+-      size = mq_receive(pplayer->mq, (FAR char *)&msg, sizeof(msg), &prio);
++      struct timespec abstime;
++      clock_gettime(CLOCK_REALTIME, &abstime);
++      abstime.tv_nsec += 100000000;
++      if (abstime.tv_nsec >= 1000000000)
++        {
++          abstime.tv_sec += 1;
++          abstime.tv_nsec -= 1000000000;
++        }
++
++      size = mq_timedreceive(pplayer->mq, (FAR char *)&msg, sizeof(msg),
++                             &prio, &abstime);
+ 
+       /* Validate a message was received */
+ 
+       if (size != sizeof(msg))
+         {
+-          /* Interrupted by a signal? What to do? */
++          /* Timeout or interrupted. Check if we should stop. */
+ 
++          pthread_mutex_lock(&pplayer->mutex);
++          if (pplayer->state == NXPLAYER_STATE_IDLE)
++            {
++              pthread_mutex_unlock(&pplayer->mutex);
++              running = false;
++              break;
++            }
++          pthread_mutex_unlock(&pplayer->mutex);
+           continue;
+         }
+ 
+@@ -1175,12 +1446,13 @@ static FAR void *nxplayer_playthread(pthread_addr_t pvarg)
+ #else
+             ioctl(pplayer->dev_fd, AUDIOIOC_STOP, 0);
+ #endif
+-            /* Stay in the running loop (without sending more data).
+-             * we will need to recover our audio buffers.  We will
+-             * loop until AUDIO_MSG_COMPLETE is received.
++            /* Stop playback and exit the running loop immediately.
++             * Do not wait for AUDIO_MSG_COMPLETE which may have already
++             * been sent during the ioctl(AUDIOIOC_STOP) call above.
+              */
+ 
+             streaming = false;
++            running = false;
+             break;
+ 
+           /* Message indicating the playback is complete */
+@@ -1212,6 +1484,7 @@ static FAR void *nxplayer_playthread(pthread_addr_t pvarg)
+ err_out:
+   audinfo("Clean-up and exit\n");
+ 
++
+   if (buffers != NULL)
+     {
+       audinfo("Freeing buffers\n");
+@@ -1259,17 +1532,29 @@ err_out:
+ 
+   close(pplayer->dev_fd);                 /* Close the device */
+   pplayer->dev_fd = -1;                   /* Mark device as closed */
++
+   DEBUGVERIFY(mq_close(pplayer->mq));     /* Close the message queue */
+   mq_unlink(pplayer->mqname);             /* Unlink the message queue */
+   pplayer->ops   = NULL;                  /* Clear offload parser */
+   pplayer->state = NXPLAYER_STATE_IDLE;   /* Go to IDLE */
+ 
+-  /* Clear the tone field */
++  /* Clear the tone field and free PSRAM cache */
+ 
+   memset(&pplayer->tone, 0, sizeof(pplayer->tone));
+ 
++  if (pplayer->pcm_cache != NULL)
++    {
++      free(pplayer->pcm_cache);
++      pplayer->pcm_cache      = NULL;
++      pplayer->pcm_cache_size = 0;
++      pplayer->pcm_cache_pos  = 0;
++      pplayer->pcm_cache_cap  = 0;
++      pplayer->pcm_cache_eof  = false;
++    }
++
+   pthread_mutex_unlock(&pplayer->mutex);
+ 
++
+   /* The playthread is done with the context.  Release it, which may
+    * actually cause the context to be freed if the creator has already
+    * abandoned (released) the context too.
+@@ -1279,6 +1564,7 @@ err_out:
+ 
+   audinfo("Exit\n");
+ 
++
+   return NULL;
+ }
+ 
+@@ -1807,6 +2093,7 @@ int nxplayer_setdevice(FAR struct nxplayer_s *pplayer,
+ int nxplayer_stop(FAR struct nxplayer_s *pplayer)
+ {
+   struct audio_msg_s term_msg;
++  int id = 0;
+ 
+   DEBUGASSERT(pplayer != NULL);
+ 
+@@ -1819,18 +2106,60 @@ int nxplayer_stop(FAR struct nxplayer_s *pplayer)
+       return OK;
+     }
+ 
++  /* Set state to IDLE so the playthread can detect stop via timeout */
++
++  pplayer->state = NXPLAYER_STATE_IDLE;
++
++  /* Grab the thread id so we can detach it */
++
++  if (pplayer->play_id > 0)
++    {
++      id = pplayer->play_id;
++      pplayer->play_id = 0;
++    }
++
+   pthread_mutex_unlock(&pplayer->mutex);
+ 
+   /* Notify the playback thread that it needs to cancel the playback */
+ 
+   term_msg.msg_id = AUDIO_MSG_STOP;
+   term_msg.u.data = 0;
+-  mq_send(pplayer->mq, (FAR const char *)&term_msg, sizeof(term_msg),
+-          CONFIG_NXPLAYER_MSG_PRIO);
+ 
+-  /* Join the thread.  The thread will do all the cleanup. */
++  {
++    struct mq_attr attr;
++    struct mq_attr old_attr;
++
++    if (mq_getattr(pplayer->mq, &attr) == 0)
++      {
++        old_attr.mq_flags = attr.mq_flags;
++        attr.mq_flags |= O_NONBLOCK;
++        mq_setattr(pplayer->mq, &attr, NULL);
++        mq_send(pplayer->mq, (FAR const char *)&term_msg,
++                sizeof(term_msg), CONFIG_NXPLAYER_MSG_PRIO);
++        mq_setattr(pplayer->mq, &old_attr, NULL);
++      }
++    else
++      {
++        mq_send(pplayer->mq, (FAR const char *)&term_msg,
++                sizeof(term_msg), CONFIG_NXPLAYER_MSG_PRIO);
++      }
++  }
+ 
+-  nxplayer_jointhread(pplayer);
++  /* Join the playthread to ensure it finishes cleanup (UNREGISTERMQ,
++   * RELEASE, close dev_fd, etc.) before we return. Without this, if the
++   * user quits nxplayer before the detached playthread finishes, the
++   * process exit kills the playthread and leaves the audio device in an
++   * inconsistent state, causing the second playback to fail.
++   *
++   * This is safe now because audio_sendmsg and es8311_stop both use
++   * file_mq_ticksend (1-tick timeout) instead of blocking file_mq_send,
++   * so the playthread won't deadlock inside ioctl(AUDIOIOC_STOP).
++   */
++
++  if (id > 0)
++    {
++      pthread_join(id, NULL);
++    }
+ 
+   return OK;
+ }
+@@ -1937,7 +2266,7 @@ static int nxplayer_playinternal(FAR struct nxplayer_s *pplayer,
+       cap_desc.caps.ac_controls.b[2]  = bpsamp;
+       cap_desc.caps.ac_subtype        = filefmt;
+ 
+-      ioctl(pplayer->dev_fd, AUDIOIOC_CONFIGURE, (unsigned long)&cap_desc);
++      ret = ioctl(pplayer->dev_fd, AUDIOIOC_CONFIGURE, (unsigned long)&cap_desc);
+     }
+ 
+   /* Query the audio device for its preferred buffer count */
+@@ -2104,10 +2433,6 @@ int nxplayer_playraw(FAR struct nxplayer_s *pplayer,
+       return -EBUSY;
+     }
+ 
+-  audinfo("==============================\n");
+-  audinfo("Playing file %s\n", pfilename);
+-  audinfo("==============================\n");
+-
+   /* Test that the specified file exists */
+ 
+ #ifdef CONFIG_NXPLAYER_HTTP_STREAMING_SUPPORT
+@@ -2196,6 +2521,256 @@ int nxplayer_playraw(FAR struct nxplayer_s *pplayer,
+       goto err_out;
+     }
+ 
++  /* Check if file extension is .wav and parse WAV header */
++
++#ifdef CONFIG_AUDIO_FORMAT_PCM
++  if (filefmt == AUDIO_FMT_PCM)
++    {
++      const char *ext = strrchr(pfilename, '.');
++      if (ext != NULL && strcmp(ext, ".wav") == 0)
++        {
++          ret = nxplayer_parse_wav(pplayer->fd, &samprate,
++                                   &nchannels, &bpsamp);
++          if (ret < 0)
++            {
++              goto err_out;
++            }
++        }
++
++      /* Pre-read entire PCM data into PSRAM cache to eliminate file I/O
++       * during playback. This avoids LVGL/LittleFS contention on the
++       * SPI bus and memory bandwidth, which is the root cause of audio
++       * stutter and truncation.
++       */
++
++      if (pplayer->fd >= 0)
++        {
++          off_t pcm_start;
++          off_t pcm_end;
++          off_t pcm_size;
++
++          /* Save current position (PCM data starts here, after header) */
++
++          pcm_start = lseek(pplayer->fd, 0, SEEK_CUR);
++          if (pcm_start < 0)
++            {
++              ret = -errno;
++              auderr("ERROR: lseek(SEEK_CUR) failed: %d\n", ret);
++              goto err_out;
++            }
++
++          /* Get file total size */
++
++          pcm_end = lseek(pplayer->fd, 0, SEEK_END);
++          if (pcm_end < 0)
++            {
++              ret = -errno;
++              auderr("ERROR: lseek(SEEK_END) failed: %d\n", ret);
++              goto err_out;
++            }
++
++          /* Calculate how much PCM data remains */
++
++          pcm_size = pcm_end - pcm_start;
++          if (pcm_size <= 0)
++            {
++              auderr("ERROR: No PCM data to play (size=%ld)\n",
++                     (long)pcm_size);
++              ret = -ENODATA;
++              goto err_out;
++            }
++
++          audinfo("Pre-reading %ld bytes of PCM into PSRAM cache\n",
++                  (long)pcm_size);
++
++          /* Allocate PSRAM cache buffer. */
++
++          pplayer->pcm_cache = (FAR uint8_t *)malloc((size_t)pcm_size);
++          if (pplayer->pcm_cache == NULL)
++            {
++              /* Full preload failed. Try progressively smaller fixed
++               * cache sizes and use chunked pre-read: the playthread
++               * copies from this cache (zero SPI contention) and refills
++               * it from the file whenever it is exhausted.
++               */
++
++              size_t try_sizes[] =
++                {
++                  6 * 1024 * 1024,   /* 6MB - ~97s at 16kHz stereo */
++                  5 * 1024 * 1024,   /* 5MB - ~81s at 16kHz stereo */
++                  4 * 1024 * 1024,   /* 4MB */
++                  3 * 1024 * 1024,   /* 3MB */
++                  2 * 1024 * 1024,   /* 2MB */
++                  1 * 1024 * 1024,   /* 1MB */
++                };
++
++              int i;
++
++              for (i = 0; i < 6; i++)
++                {
++                  if ((off_t)try_sizes[i] < pcm_size)
++                    {
++                      pplayer->pcm_cache =
++                        (FAR uint8_t *)malloc(try_sizes[i]);
++                      if (pplayer->pcm_cache != NULL)
++                        {
++                          pplayer->pcm_cache_cap = (uint32_t)try_sizes[i];
++                          audinfo("chunked cache %zu bytes "
++                                 "allocated\n", try_sizes[i]);
++                          audwarn("WARNING: Full preload failed, using "
++                                  "chunked cache of %zu bytes\n",
++                                  try_sizes[i]);
++                          break;
++                        }
++                    }
++                }
++
++              if (pplayer->pcm_cache == NULL)
++                {
++                  /* Even smallest cache failed, fall back to pure
++                   * streaming.
++                   */
++
++                  audwarn("WARNING: All cache alloc failed, streaming\n");
++                  audinfo("all cache alloc failed, pure "
++                         "streaming\n");
++                  lseek(pplayer->fd, pcm_start, SEEK_SET);
++                  goto skip_preread;
++                }
++
++              /* Fill the first chunk from the PCM data start */
++
++              {
++                /* Fill cache by reading in a loop (partial reads are
++                 * normal on SD card / FAT file systems - a short read
++                 * does NOT mean EOF, only read()==0 does).
++                 */
++
++                size_t total_read = 0;
++
++                lseek(pplayer->fd, pcm_start, SEEK_SET);
++                while (total_read < pplayer->pcm_cache_cap)
++                  {
++                    size_t chunk = pplayer->pcm_cache_cap - total_read;
++                    if (chunk > 8192) chunk = 8192;
++                    ssize_t nread = read(pplayer->fd,
++                                         pplayer->pcm_cache + total_read,
++                                         chunk);
++                    if (nread <= 0)
++                      {
++                        break;  /* EOF (0) or error (-1) */
++                      }
++
++                    total_read += (size_t)nread;
++                  }
++
++                if (total_read == 0)
++                  {
++                    ret = -EIO;
++                    auderr("ERROR: initial chunk read failed\n");
++                    free(pplayer->pcm_cache);
++                    pplayer->pcm_cache = NULL;
++                    goto err_out;
++                  }
++
++                pplayer->pcm_cache_size = (uint32_t)total_read;
++                pplayer->pcm_cache_pos  = 0;
++                pplayer->pcm_cache_eof  =
++                  (total_read < pplayer->pcm_cache_cap);
++                audinfo("initial fill %lu/%lu bytes, eof=%d\n",
++                       (unsigned long)total_read,
++                       (unsigned long)pplayer->pcm_cache_cap,
++                       pplayer->pcm_cache_eof);
++              }
++
++              /* DON'T close fd - it is needed for subsequent refills.
++               * Skip the full pre-read block below.
++               */
++
++              goto skip_preread;
++            }
++
++          /* Seek back to PCM data start and read everything */
++
++          if (lseek(pplayer->fd, pcm_start, SEEK_SET) != pcm_start)
++            {
++              ret = -errno;
++              auderr("ERROR: lseek(SEEK_SET) failed: %d\n", ret);
++              free(pplayer->pcm_cache);
++              pplayer->pcm_cache = NULL;
++              goto err_out;
++            }
++
++          {
++            ssize_t nread;
++            size_t  total_read = 0;
++            size_t  remaining  = (size_t)pcm_size;
++
++            while (remaining > 0)
++              {
++                size_t chunk = remaining;
++
++                /* Cap each read to 8KB so the SDMMC driver's PSRAM
++                 * bounce buffer (allocated from the limited kernel
++                 * heap) can accommodate it.
++                 */
++
++                if (chunk > 8192)
++                  {
++                    chunk = 8192;
++                  }
++
++                nread = read(pplayer->fd,
++                              pplayer->pcm_cache + total_read,
++                              chunk);
++                if (nread < 0)
++                  {
++                    ret = -errno;
++                    auderr("ERROR: read failed: %d\n", ret);
++                    free(pplayer->pcm_cache);
++                    pplayer->pcm_cache = NULL;
++                    goto err_out;
++                  }
++
++                if (nread == 0)
++                  {
++                    break;
++                  }
++
++                total_read += (size_t)nread;
++                remaining  -= (size_t)nread;
++              }
++
++            pplayer->pcm_cache_size = (uint32_t)total_read;
++            pplayer->pcm_cache_pos  = 0;
++            pplayer->pcm_cache_cap  = (uint32_t)total_read;
++            pplayer->pcm_cache_eof  = true;
++
++            /* Sanity check: ensure we read all expected PCM data */
++
++            if (total_read != (size_t)pcm_size)
++              {
++                auderr("ERROR Short read! Expected %ld bytes, got %zu\n",
++                       (long)pcm_size, total_read);
++              }
++
++            audinfo("full preload %lu bytes (actual: %zu)\n",
++                   (unsigned long)pcm_size, total_read);
++          }
++
++          /* Close the file now — all data is in PSRAM.
++           * The playthread will serve data from pcm_cache.
++           */
++
++          close(pplayer->fd);
++          pplayer->fd = -1;
++        }
++
++skip_preread:
++      ;
++    }
++#endif
++
+   if (pplayer->ops->pre_parse)
+     {
+       ret = pplayer->ops->pre_parse(pplayer->fd, &samprate,
+@@ -2206,20 +2781,9 @@ int nxplayer_playraw(FAR struct nxplayer_s *pplayer,
+         }
+     }
+ 
+-  if (nchannels == 0)
+-    {
+-      nchannels = 2;
+-    }
+-
+-  if (bpsamp == 0)
+-    {
+-      bpsamp = 16;
+-    }
+-
+-  if (samprate == 0)
+-    {
+-      samprate = 48000;
+-    }
++  if (nchannels == 0) { nchannels = 2; }
++  if (bpsamp == 0)    { bpsamp = 16; }
++  if (samprate == 0)  { samprate = 48000; }
+ 
+   ret = nxplayer_playinternal(pplayer, filefmt, subfmt,
+                               nchannels, bpsamp, samprate, chmap);
+@@ -2356,6 +2920,14 @@ FAR struct nxplayer_s *nxplayer_create(void)
+ 
+   memset(&pplayer->tone, 0, sizeof(pplayer->tone));
+ 
++  /* Initialize PSRAM pre-read cache fields */
++
++  pplayer->pcm_cache      = NULL;
++  pplayer->pcm_cache_size = 0;
++  pplayer->pcm_cache_pos  = 0;
++  pplayer->pcm_cache_cap  = 0;
++  pplayer->pcm_cache_eof  = false;
++
+ #ifdef CONFIG_NXPLAYER_INCLUDE_MEDIADIR
+   strlcpy(pplayer->mediadir, CONFIG_NXPLAYER_DEFAULT_MEDIADIR,
+           sizeof(pplayer->mediadir));
+diff --git a/system/nxplayer/nxplayer_main.c b/system/nxplayer/nxplayer_main.c
+index 8e93d8326..4c3dfef79 100644
+--- a/system/nxplayer/nxplayer_main.c
++++ b/system/nxplayer/nxplayer_main.c
+@@ -854,7 +854,7 @@ int main(int argc, FAR char *argv[])
+ 
+               /* Remove leading spaces from arg */
+ 
+-              while (*arg == ' ')
++              while (arg && *arg == ' ')
+                 {
+                   arg++;
+                 }
+diff --git a/system/nxrecorder/CMakeLists.txt b/system/nxrecorder/CMakeLists.txt
+index 5f43d4e75..3786e861a 100644
+--- a/system/nxrecorder/CMakeLists.txt
++++ b/system/nxrecorder/CMakeLists.txt
+@@ -1,6 +1,8 @@
+ # ##############################################################################
+ # apps/system/nxrecorder/CMakeLists.txt
+ #
++# SPDX-License-Identifier: Apache-2.0
++#
+ # Licensed to the Apache Software Foundation (ASF) under one or more contributor
+ # license agreements.  See the NOTICE file distributed with this work for
+ # additional information regarding copyright ownership.  The ASF licenses this
+@@ -27,5 +29,9 @@ if(CONFIG_SYSTEM_NXRECORDER)
+ 
+   set(CSRCS nxrecorder.c nxrecorder_common.c nxrecorder_amr.c)
+ 
++  if(CONFIG_AUDIO_FORMAT_PCM)
++    list(APPEND CSRCS nxrecorder_wav.c)
++  endif()
++
+   target_sources(apps PRIVATE ${CSRCS})
+ endif()
+diff --git a/system/nxrecorder/Makefile b/system/nxrecorder/Makefile
+index 2a2f6d09f..a752d760c 100644
+--- a/system/nxrecorder/Makefile
++++ b/system/nxrecorder/Makefile
+@@ -1,6 +1,8 @@
+ ############################################################################
+ # apps/system/nxrecorder/Makefile
+ #
++# SPDX-License-Identifier: Apache-2.0
++#
+ # Licensed to the Apache Software Foundation (ASF) under one or more
+ # contributor license agreements.  See the NOTICE file distributed with
+ # this work for additional information regarding copyright ownership.  The
+@@ -26,6 +28,10 @@ CSRCS     = nxrecorder.c
+ CSRCS    += nxrecorder_amr.c
+ CSRCS    += nxrecorder_common.c
+ 
++ifeq ($(CONFIG_AUDIO_FORMAT_PCM),y)
++CSRCS    += nxrecorder_wav.c
++endif
++
+ ifneq ($(CONFIG_NXRECORDER_COMMAND_LINE),)
+ PROGNAME = nxrecorder
+ PRIORITY = SCHED_PRIORITY_DEFAULT
+diff --git a/system/nxrecorder/nxrecorder.c b/system/nxrecorder/nxrecorder.c
+index 10f4806e9..421abf0c8 100644
+--- a/system/nxrecorder/nxrecorder.c
++++ b/system/nxrecorder/nxrecorder.c
+@@ -1,6 +1,8 @@
+ /****************************************************************************
+  * apps/system/nxrecorder/nxrecorder.c
+  *
++ * SPDX-License-Identifier: Apache-2.0
++ *
+  * Licensed to the Apache Software Foundation (ASF) under one or more
+  * contributor license agreements.  See the NOTICE file distributed with
+  * this work for additional information regarding copyright ownership.  The
+@@ -25,7 +27,7 @@
+ #include <nuttx/config.h>
+ 
+ #include <assert.h>
+-#include <debug.h>
++#include <nuttx/debug.h>
+ #include <dirent.h>
+ #include <errno.h>
+ #include <fcntl.h>
+@@ -41,6 +43,7 @@
+ #include <unistd.h>
+ 
+ #include <nuttx/audio/audio.h>
++#include <nuttx/audio/es7210.h>
+ 
+ #include "system/nxrecorder.h"
+ 
+@@ -61,7 +64,7 @@
+ #endif
+ 
+ /****************************************************************************
+- * Private Type Declarations
++ * Private Types
+  ****************************************************************************/
+ 
+ #ifdef CONFIG_NXRECORDER_FMT_FROM_EXT
+@@ -81,6 +84,13 @@ struct nxrecorder_ext_fmt_s
+ int nxrecorder_getmp3subformat(int fd);
+ #endif
+ 
++#ifdef CONFIG_AUDIO_FORMAT_PCM
++int nxrecorder_write_wav(int fd, uint32_t samplerate,
++                         uint8_t chans, uint8_t bps);
++int nxrecorder_update_wav(int fd, uint32_t samplerate,
++                         uint8_t chans, uint8_t bps, uint32_t datasize);
++#endif
++
+ /****************************************************************************
+  * Private Data
+  ****************************************************************************/
+@@ -394,14 +404,15 @@ static int nxrecorder_writebuffer(FAR struct nxrecorder_s *precorder,
+ 
+   if (precorder->fd == -1)
+     {
+-      /* Return -ENODATA to indicate that there is nothing more to write to
+-       * the file.
+-       */
+-
+       return -ENODATA;
+     }
+ 
+-  /* Write data to the file. */
++  if (es7210_get_mic_mute())
++    {
++      apb->curbyte = 0;
++      apb->flags   = 0;
++      return OK;
++    }
+ 
+   ret = precorder->ops->write_data(precorder->fd, apb);
+   if (ret < 0)
+@@ -409,6 +420,10 @@ static int nxrecorder_writebuffer(FAR struct nxrecorder_s *precorder,
+       return ret;
+     }
+ 
++  /* Track data size for WAV header update */
++
++  precorder->datasize += apb->nbytes;
++
+   apb->curbyte = 0;
+   apb->flags   = 0;
+ 
+@@ -526,7 +541,6 @@ static FAR void *nxrecorder_recordthread(pthread_addr_t pvarg)
+   bool                    streaming = true;
+   bool                    failed = false;
+   struct ap_buffer_info_s buf_info;
+-  FAR struct ap_buffer_s  **pbuffers;
+   unsigned int            prio;
+ #ifdef CONFIG_DEBUG_FEATURES
+   int                     outstanding = 0;
+@@ -549,23 +563,11 @@ static FAR void *nxrecorder_recordthread(pthread_addr_t pvarg)
+ 
+   /* Create array of pointers to buffers */
+ 
+-  pbuffers = (FAR struct ap_buffer_s **) malloc(buf_info.nbuffers *
+-                                                sizeof(FAR void *));
+-  if (pbuffers == NULL)
+-    {
+-      /* Error allocating memory for buffer storage! */
+-
+-      ret = -ENOMEM;
+-      running = false;
+-      goto err_out;
+-    }
++  FAR struct ap_buffer_s *pbuffers[buf_info.nbuffers];
+ 
+   /* Create our audio pipeline buffers to use for queueing up data */
+ 
+-  for (x = 0; x < buf_info.nbuffers; x++)
+-    {
+-      pbuffers[x] = NULL;
+-    }
++  memset(pbuffers, 0, sizeof(pbuffers));
+ 
+   for (x = 0; x < buf_info.nbuffers; x++)
+     {
+@@ -789,12 +791,25 @@ static FAR void *nxrecorder_recordthread(pthread_addr_t pvarg)
+ #else
+             ioctl(precorder->dev_fd, AUDIOIOC_STOP, 0);
+ #endif
+-            /* Stay in the running loop (without sending more data).
+-             * we will need to recover our audio buffers.  We will
+-             * loop until AUDIO_MSG_COMPLETE is received.
++
++            /* ESP32-S3 I2S driver: i2s_rx_channel_stop() moves all
++             * pending/active audio buffers to rx.done and schedules
++             * i2s_rx_worker on HPWORK to process them.  If we proceed
++             * to free the buffers immediately, the HPWORK worker will
++             * access freed memory (UAF) causing EXCCAUSE=0x1c crash.
++             * Give HPWORK time to drain the final callbacks before we
++             * start cleanup.
++             */
++
++            usleep(300 * 1000);
++
++            /* Stop recording and exit the running loop immediately.
++             * Do not wait for AUDIO_MSG_COMPLETE which may never arrive
++             * if the driver does not send it after AUDIOIOC_STOP.
+              */
+ 
+             streaming = false;
++            running = false;
+             break;
+ 
+           /* Message indicating the recordback is complete */
+@@ -818,28 +833,20 @@ static FAR void *nxrecorder_recordthread(pthread_addr_t pvarg)
+ err_out:
+   audinfo("Clean-up and exit\n");
+ 
+-  if (pbuffers != NULL)
++  audinfo("Freeing buffers\n");
++  for (x = 0; x < buf_info.nbuffers; x++)
+     {
+-      audinfo("Freeing buffers\n");
+-      for (x = 0; x < buf_info.nbuffers; x++)
+-        {
+-          /* Fill in the buffer descriptor struct to issue a free request */
++      /* Fill in the buffer descriptor struct to issue a free request */
+ 
+-          if (pbuffers[x] != NULL)
+-            {
++      if (pbuffers[x] != NULL)
++        {
+ #ifdef CONFIG_AUDIO_MULTI_SESSION
+-              buf_desc.session = precorder->session;
++         buf_desc.session = precorder->session;
+ #endif
+-              buf_desc.u.buffer = pbuffers[x];
+-              ioctl(precorder->dev_fd,
+-                    AUDIOIOC_FREEBUFFER,
+-                    (uintptr_t)&buf_desc);
+-            }
++          buf_desc.u.buffer = pbuffers[x];
++          ioctl(precorder->dev_fd, AUDIOIOC_FREEBUFFER,
++                (uintptr_t)&buf_desc);
+         }
+-
+-      /* Free the pointers to the buffers */
+-
+-      free(pbuffers);
+     }
+ 
+   /* Unregister the message queue and release the session */
+@@ -865,8 +872,24 @@ err_out:
+ 
+   if (0 < precorder->fd)
+     {
+-      close(precorder->fd);                 /* Close the file */
+-      precorder->fd = -1;                   /* Clear out the FD */
++#ifdef CONFIG_AUDIO_FORMAT_PCM
++      if (precorder->datasize > 0 && precorder->is_wav)
++        {
++          nxrecorder_update_wav(precorder->fd, precorder->samplerate,
++                               precorder->nchannels, precorder->bpsamp,
++                               precorder->datasize);
++        }
++#endif
++
++      fsync(precorder->fd);
++      close(precorder->fd);
++      precorder->fd = -1;
++
++      if (precorder->datasize == 0 && precorder->filepath[0] != '\0')
++        {
++          unlink(precorder->filepath);
++          precorder->filepath[0] = '\0';
++        }
+     }
+ 
+   close(precorder->dev_fd);                 /* Close the device */
+@@ -1146,6 +1169,37 @@ int nxrecorder_recordinternal(FAR struct nxrecorder_s *precorder,
+         }
+     }
+ 
++  /* Save audio parameters for WAV header update */
++
++  precorder->samplerate = samprate;
++  precorder->nchannels = nchannels;
++  precorder->bpsamp = bpsamp;
++  precorder->datasize = 0;
++  strlcpy(precorder->filepath, pfilename, sizeof(precorder->filepath));
++
++  /* Check if file extension is .wav and write WAV header */
++
++#ifdef CONFIG_AUDIO_FORMAT_PCM
++  if (filefmt == AUDIO_FMT_PCM)
++    {
++      const char *ext = strrchr(pfilename, '.');
++      if (ext != NULL && strcmp(ext, ".wav") == 0)
++        {
++          precorder->is_wav = true;
++          ret = nxrecorder_write_wav(precorder->fd, samprate,
++                                     nchannels, bpsamp);
++          if (ret < 0)
++            {
++              goto err_out;
++            }
++        }
++      else
++        {
++          precorder->is_wav = false;
++        }
++    }
++#endif
++
+   /* Try to reserve the device */
+ 
+ #ifdef CONFIG_AUDIO_MULTI_SESSION
+diff --git a/system/nxrecorder/nxrecorder_main.c b/system/nxrecorder/nxrecorder_main.c
+index a8cf28552..a8a4c63d6 100644
+--- a/system/nxrecorder/nxrecorder_main.c
++++ b/system/nxrecorder/nxrecorder_main.c
+@@ -1,6 +1,8 @@
+ /****************************************************************************
+  * apps/system/nxrecorder/nxrecorder_main.c
+  *
++ * SPDX-License-Identifier: Apache-2.0
++ *
+  * Licensed to the Apache Software Foundation (ASF) under one or more
+  * contributor license agreements.  See the NOTICE file distributed with
+  * this work for additional information regarding copyright ownership.  The
+@@ -49,7 +51,7 @@
+ #endif
+ 
+ /****************************************************************************
+- * Private Type Declarations
++ * Private Types
+  ****************************************************************************/
+ 
+ struct mp_cmd_s
+@@ -529,7 +531,7 @@ static int nxrecorder_cmd_help(FAR struct nxrecorder_s *precorder,
+ 
+ int main(int argc, FAR char *argv[])
+ {
+-  FAR char               *buffer;
++  char                    buffer[LINE_MAX];
+   int                     len;
+   int                     x;
+   int                     running;
+@@ -550,14 +552,6 @@ int main(int argc, FAR char *argv[])
+       return -ENOMEM;
+     }
+ 
+-  buffer = lib_get_tempbuffer(LINE_MAX);
+-  if (buffer == NULL)
+-    {
+-      nxrecorder_release(precorder);
+-      printf("Error: lib_get_tempbuffer failed\n");
+-      return -ENOMEM;
+-    }
+-
+   /* Loop until the user exits */
+ 
+   running = TRUE;
+@@ -570,7 +564,7 @@ int main(int argc, FAR char *argv[])
+ 
+       /* Read a line from the terminal */
+ 
+-      len = readline_stream(buffer, LINE_MAX,
++      len = readline_stream(buffer, sizeof(buffer),
+                             stdin, stdout);
+       if (len > 0)
+         {
+@@ -594,7 +588,7 @@ int main(int argc, FAR char *argv[])
+ 
+               /* Remove leading spaces from arg */
+ 
+-              while (*arg == ' ')
++              while (arg && *arg == ' ')
+                 {
+                   arg++;
+                 }
+@@ -639,7 +633,6 @@ int main(int argc, FAR char *argv[])
+   /* Release the NxRecorder context */
+ 
+   nxrecorder_release(precorder);
+-  lib_put_tempbuffer(buffer);
+ 
+   return OK;
+ }
+diff --git a/system/nxrecorder/nxrecorder_wav.c b/system/nxrecorder/nxrecorder_wav.c
+new file mode 100644
+index 000000000..baf4450d2
+--- /dev/null
++++ b/system/nxrecorder/nxrecorder_wav.c
+@@ -0,0 +1,282 @@
++/****************************************************************************
++ * apps/system/nxrecorder/nxrecorder_wav.c
++ *
++ * SPDX-License-Identifier: Apache-2.0
++ *
++ * Licensed to the Apache Software Foundation (ASF) under one or more
++ * contributor license agreements.  See the NOTICE file distributed with
++ * this work for additional information regarding copyright ownership.  The
++ * ASF licenses this file to you under the Apache License, Version 2.0 (the
++ * "License"); you may not use this file except in compliance with the
++ * License.  You may obtain a copy of the License at
++ *
++ *   http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
++ * WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  See the
++ * License for the specific language governing permissions and limitations
++ * under the License.
++ *
++ ****************************************************************************/
++
++/****************************************************************************
++ * Included Files
++ ****************************************************************************/
++
++#include <nuttx/config.h>
++
++#include <stdio.h>
++#include <unistd.h>
++#include <string.h>
++
++#include <nuttx/audio/audio.h>
++#include <nuttx/audio/pcm.h>
++
++#include "system/nxrecorder.h"
++
++#ifdef CONFIG_AUDIO_FORMAT_PCM
++
++/****************************************************************************
++ * Private Functions
++ ****************************************************************************/
++
++/****************************************************************************
++ * Name: wav_header_init
++ *
++ * Description:
++ *   Initialize WAV file header with the given parameters.
++ *
++ ****************************************************************************/
++
++static void wav_header_init(FAR struct wav_header_s *wav,
++                            uint32_t samplerate, uint8_t chans,
++                            uint8_t bps)
++{
++  /* Initialize header chunk */
++
++  wav->hdr.chunkid  = WAV_HDR_CHUNKID;   /* "RIFF" */
++  wav->hdr.format   = WAV_HDR_FORMAT;    /* "WAVE" */
++  wav->hdr.chunklen = 0;                 /* Will be updated when recording stops */
++
++  /* Initialize format chunk */
++
++  wav->fmt.chunkid   = WAV_FMT_CHUNKID;  /* "fmt " */
++  wav->fmt.chunklen  = WAV_FMT_CHUNKLEN; /* 16 for PCM */
++  wav->fmt.format    = WAV_FMT_FORMAT;   /* PCM = 1 */
++  wav->fmt.nchannels = chans;
++  wav->fmt.samprate  = samplerate;
++  wav->fmt.bpsamp    = bps;
++  wav->fmt.byterate  = samplerate * chans * (bps / 8);
++  wav->fmt.align     = chans * (bps / 8);
++
++  /* Initialize data chunk */
++
++  wav->data.chunkid  = WAV_DATA_CHUNKID; /* "data" */
++  wav->data.chunklen = 0;                /* Will be updated when recording stops */
++}
++
++/****************************************************************************
++ * Name: wav_header_write
++ *
++ * Description:
++ *   Write WAV file header to the file.
++ *
++ ****************************************************************************/
++
++static int wav_header_write(int fd, FAR struct wav_header_s *wav)
++{
++  int ret;
++
++  ret = write(fd, &wav->hdr.chunkid, sizeof(wav->hdr.chunkid));
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  ret = write(fd, &wav->hdr.chunklen, sizeof(wav->hdr.chunklen));
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  ret = write(fd, &wav->hdr.format, sizeof(wav->hdr.format));
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  ret = write(fd, &wav->fmt.chunkid, sizeof(wav->fmt.chunkid));
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  ret = write(fd, &wav->fmt.chunklen, sizeof(wav->fmt.chunklen));
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  ret = write(fd, &wav->fmt.format, sizeof(wav->fmt.format));
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  ret = write(fd, &wav->fmt.nchannels, sizeof(wav->fmt.nchannels));
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  ret = write(fd, &wav->fmt.samprate, sizeof(wav->fmt.samprate));
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  ret = write(fd, &wav->fmt.byterate, sizeof(wav->fmt.byterate));
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  ret = write(fd, &wav->fmt.align, sizeof(wav->fmt.align));
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  ret = write(fd, &wav->fmt.bpsamp, sizeof(wav->fmt.bpsamp));
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  ret = write(fd, &wav->data.chunkid, sizeof(wav->data.chunkid));
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  ret = write(fd, &wav->data.chunklen, sizeof(wav->data.chunklen));
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  return OK;
++}
++
++/****************************************************************************
++ * Name: wav_header_update
++ *
++ * Description:
++ *   Update WAV file header with the actual data size.
++ *
++ ****************************************************************************/
++
++static int wav_header_update(int fd, FAR struct wav_header_s *wav,
++                             uint32_t datasize)
++{
++  int ret;
++
++  /* Update data chunk size */
++
++  wav->data.chunklen = datasize;
++
++  /* Update header chunk size (total file size - 8 bytes for chunkid and chunklen) */
++
++  wav->hdr.chunklen = sizeof(struct wav_formatchunk_s) +
++                      sizeof(struct wav_datachunk_s) + datasize;
++
++  /* Seek to the beginning of the file */
++
++  ret = lseek(fd, 0, SEEK_SET);
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  /* Rewrite the header */
++
++  ret = wav_header_write(fd, wav);
++  if (ret < 0)
++    {
++      return ret;
++    }
++
++  return OK;
++}
++
++/****************************************************************************
++ * Public Functions
++ ****************************************************************************/
++
++/****************************************************************************
++ * Name: nxrecorder_write_wav
++ *
++ * Description:
++ *   Write WAV file header to the recording file.
++ *
++ ****************************************************************************/
++
++int nxrecorder_write_wav(int fd, uint32_t samplerate,
++                         uint8_t chans, uint8_t bps)
++{
++  struct wav_header_s wav;
++  int ret;
++
++  /* Initialize WAV header */
++
++  wav_header_init(&wav, samplerate, chans, bps);
++
++  /* Write WAV header to file */
++
++  ret = wav_header_write(fd, &wav);
++  if (ret < 0)
++    {
++      printf("ERROR: Failed to write WAV header: %d\n", ret);
++      return ret;
++    }
++
++  printf("WAV header written: samplerate=%lu chans=%u bps=%u\n",
++          (unsigned long)samplerate, chans, bps);
++
++  return OK;
++}
++
++/****************************************************************************
++ * Name: nxrecorder_update_wav
++ *
++ * Description:
++ *   Update WAV file header with the actual data size when recording stops.
++ *
++ ****************************************************************************/
++
++int nxrecorder_update_wav(int fd, uint32_t samplerate,
++                         uint8_t chans, uint8_t bps, uint32_t datasize)
++{
++  struct wav_header_s wav;
++  int ret;
++
++  /* Initialize WAV header */
++
++  wav_header_init(&wav, samplerate, chans, bps);
++
++  /* Update WAV header with actual data size */
++
++  ret = wav_header_update(fd, &wav, datasize);
++  if (ret < 0)
++    {
++      printf("ERROR: Failed to update WAV header: %d\n", ret);
++      return ret;
++    }
++
++  printf("WAV header updated: datasize=%lu\n", (unsigned long)datasize);
++
++  return OK;
++}
++
++#endif /* CONFIG_AUDIO_FORMAT_PCM */
+\ No newline at end of file
+-- 
+2.43.0
+
