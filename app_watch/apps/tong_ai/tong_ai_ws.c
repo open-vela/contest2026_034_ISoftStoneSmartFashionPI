@@ -1398,7 +1398,9 @@ static void *recv_thread(void *arg)
                                     syslog(LOG_INFO, "[%s] ASR: \"%s\"\n", TAG, t);
 
                                     /* 智能家居指令检测（优先于UI模式切换，
-                                     * 避免"打开客厅灯"中的"打开"误触发策略2） */
+                                     * 避免"打开客厅灯"中的"打开"误触发策略2）。
+                                     * OK 时继续正常AI对话，由服务端E2E自主回复
+                                     * （同音量调节）；仅失败时本地wav兜底。 */
                                     int hc_ret = home_control_voice_execute(t);
                                     if (hc_ret == HOME_CTRL_NET_FAIL) {
                                         /* 匹配到设备但网络失败 */
@@ -1407,6 +1409,7 @@ static void *recv_thread(void *arg)
                                             TAG, t);
                                         volc_play_local_wav(HOME_CTRL_FAIL_WAV);
                                         skip_ai = true;
+                                        s_suppress_tts = true;
                                     } else if (hc_ret == HOME_CTRL_NO_MATCH) {
                                         /* 有开关动作词但未匹配到设备 */
                                         syslog(LOG_INFO,
@@ -1414,9 +1417,9 @@ static void *recv_thread(void *arg)
                                             TAG, t);
                                         volc_play_local_wav(HOME_CTRL_NOT_FOUND_WAV);
                                         skip_ai = true;
+                                        s_suppress_tts = true;
                                     }
-                                    /* HOME_CTRL_OK: 指令成功，正常AI对话
-                                     * HOME_CTRL_NONE: 无关指令，正常AI对话 */
+                                    /* HOME_CTRL_NONE: 无关指令，正常AI对话 */
 
                                     if (!skip_ai) {
                                         /* 累积最终文本到静态缓冲区 */

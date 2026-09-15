@@ -45,13 +45,9 @@
 #include "../home_control/home_control.h"
 #include "../volume_control/volume_control.h"
 
-/* System alert audio (flat build, symbol from ai_agent package) */
-extern void tool_system_alert_play(int alert_id, int force);
-
 #ifdef CONFIG_AI_AGENT_EMOTION_TOY
 /* ai_agent 语音管线（flat build 直接链接）：低电量/充电主动提醒用。
- * 声明不引入 ai_agent 头文件——跨 app 目录无 include 路径，与
- * tool_system_alert_play 保持一致的 extern 风格。
+ * 声明不引入 ai_agent 头文件——跨 app 目录无 include 路径。
  * 提示词经 voice_channel_inject_prompt 注入，由 conversation_thread
  * 按完整对话回合消费（LLM 生成文案 + TTS + 状态机），不直接 speak
  * ——外部 speak 会把 LISTENING 翻成 SPEAKING 导致对话线程退出、
@@ -481,16 +477,15 @@ int watch_expression_page_set_face(const char* face_id, int duration_ms)
 
 /* ── 电池电量监控 ──────────────────────────────────────────────── */
 
-/* 低电量告警阈值（百分比）：临时调至 80 便于实测验证，正式发布
- * 前应恢复为 20 */
-#define WATCH_BATTERY_LOW_THRESHOLD   80
+/* 低电量告警阈值（百分比）：正式值 20，低于此电量触发提醒 */
+#define WATCH_BATTERY_LOW_THRESHOLD   20
 
 /* 电量周期检测间隔（毫秒） */
 #define WATCH_BATTERY_CHECK_INTERVAL_MS  10000  /* 10秒检测一次 */
 
-/* 低电量期间重复提醒间隔（秒）：低于阈值期间每 60 秒注入一次
+/* 低电量期间重复提醒间隔（秒）：低于阈值期间每 2 分钟注入一次
  * 提醒提示词，直到充电或电量恢复 */
-#define WATCH_BATTERY_REMIND_INTERVAL_SEC  60
+#define WATCH_BATTERY_REMIND_INTERVAL_SEC  120
 
 /* 充电状态轮询间隔（毫秒）：插电报喜要求 ~1s 内感知 */
 #define WATCH_CHARGE_CHECK_INTERVAL_MS  1000
@@ -709,17 +704,13 @@ static void battery_timer_cb(lv_timer_t *timer)
       if (s_expression_mode)
         {
           battery_proactive_remind(BATTERY_REMIND_LOW, soc);
-        }
-      else
-#endif
-        {
-          /* 非表情模式：原生硬提示音（最高优先级，自带 30s 去重） */
-          tool_system_alert_play(15, 0);
-        }
 
-      syslog(LOG_WARNING,
-             "[BATTERY] 电量过低: 当前电量 %u%%, 请及时充电",
-             (unsigned int)soc);
+          syslog(LOG_WARNING,
+                 "[BATTERY] 电量过低: 当前电量 %u%%, 请及时充电",
+                 (unsigned int)soc);
+        }
+      /* 手表模式不播报低电量：语音播报不属于手表使用场景 */
+#endif
     }
   else
     {
