@@ -1,0 +1,8 @@
+############################################################################
+# apps/examples/mimo_stream_voice_test/Make.defs
+#
+# Streaming MiMo ASR + TTS voice test for ESP32-S3.
+############################################################################
+ifneq ($(CONFIG_EXAMPLES_MIMO_STREAM_VOICE_TEST),)
+CONFIGURED_APPS += $(APPDIR)/examples/mimo_stream_voice_test
+endif

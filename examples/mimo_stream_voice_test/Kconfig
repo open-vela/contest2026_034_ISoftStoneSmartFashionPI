@@ -1,0 +1,31 @@
+#
+# For a description of the syntax of this configuration file,
+# see the file kconfig-language.txt in the NuttX tools repository.
+#
+
+config EXAMPLES_MIMO_STREAM_VOICE_TEST
+	tristate "MiMo streaming voice test (ASR+TTS via SSE)"
+	default n
+	depends on AI_AGENT_MIMO_VOICE && SYSTEM_NXRECORDER && SYSTEM_NXPLAYER
+	---help---
+		End-to-end streaming voice pipeline test using MiMo ASR and TTS
+		with Server-Sent Events (SSE) for incremental response parsing.
+		Records audio, sends to MiMo ASR with streaming enabled, then
+		feeds recognized text to MiMo TTS with streaming, and plays the
+		result back through the speaker.
+
+if EXAMPLES_MIMO_STREAM_VOICE_TEST
+
+config EXAMPLES_MIMO_STREAM_VOICE_TEST_PROGNAME
+	string "Program name"
+	default "mimo_stream_test"
+
+config EXAMPLES_MIMO_STREAM_VOICE_TEST_PRIORITY
+	int "Task priority"
+	default 100
+
+config EXAMPLES_MIMO_STREAM_VOICE_TEST_STACKSIZE
+	int "Stack size"
+	default 32768
+
+endif # EXAMPLES_MIMO_STREAM_VOICE_TEST

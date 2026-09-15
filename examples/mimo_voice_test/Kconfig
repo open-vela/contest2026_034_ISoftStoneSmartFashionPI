@@ -1,0 +1,34 @@
+#
+# For a description of the syntax of this configuration file,
+# see the file kconfig-language.txt in the NuttX tools repository.
+#
+config EXAMPLES_MIMO_VOICE_TEST
+	tristate "MiMo Voice (ASR/TTS) End-to-End Test"
+	default n
+	depends on SYSTEM_NXPLAYER && SYSTEM_NXRECORDER
+	depends on EXAMPLES_AI_AGENT_VELA
+	depends on AI_AGENT_MIMO_VOICE
+	---help---
+		End-to-end voice pipeline test using Xiaomi MiMo ASR/TTS.
+		Flow: record WAV to SD card -> MiMo ASR -> MiMo TTS
+		-> save synthesized WAV to SD card -> play back.
+		Depends on nxrecorder / nxplayer for audio I/O and the
+		ai_agent voice framework for MiMo backends.
+
+if EXAMPLES_MIMO_VOICE_TEST
+
+config EXAMPLES_MIMO_VOICE_TEST_PROGNAME
+	string "Program name"
+	default "mimo_voice_test"
+	---help---
+		This is the name of the NSH built-in command.
+
+config EXAMPLES_MIMO_VOICE_TEST_PRIORITY
+	int "MiMo voice test task priority"
+	default 100
+
+config EXAMPLES_MIMO_VOICE_TEST_STACKSIZE
+	int "MiMo voice test stack size"
+	default 16384
+
+endif

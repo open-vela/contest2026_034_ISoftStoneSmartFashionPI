@@ -1,0 +1,6 @@
+############################################################################
+# apps/examples/volc_e2e_voice/Make.defs
+############################################################################
+ifneq ($(CONFIG_EXAMPLES_VOLC_E2E_VOICE),)
+CONFIGURED_APPS += $(APPDIR)/examples/volc_e2e_voice
+endif

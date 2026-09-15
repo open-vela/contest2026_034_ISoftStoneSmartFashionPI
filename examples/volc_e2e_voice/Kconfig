@@ -1,0 +1,31 @@
+#
+# Volcengine End-to-End Voice Client
+#
+config EXAMPLES_VOLC_E2E_VOICE
+	tristate "Volcengine E2E Realtime Voice Client"
+	default n
+	depends on SYSTEM_NXPLAYER
+	depends on EXAMPLES_AI_AGENT_VELA
+	---help---
+		End-to-end voice client using Volcengine Realtime API.
+		Single WebSocket connection for ASR + LLM + TTS.
+		Flow: microphone → WebSocket → server (ASR+LLM+TTS)
+		→ WebSocket → speaker.
+
+if EXAMPLES_VOLC_E2E_VOICE
+
+config EXAMPLES_VOLC_E2E_VOICE_PROGNAME
+	string "Program name"
+	default "volc_e2e_voice"
+	---help---
+		This is the name of the NSH built-in command.
+
+config EXAMPLES_VOLC_E2E_VOICE_PRIORITY
+	int "Task priority"
+	default 100
+
+config EXAMPLES_VOLC_E2E_VOICE_STACKSIZE
+	int "Stack size"
+	default 16384
+
+endif

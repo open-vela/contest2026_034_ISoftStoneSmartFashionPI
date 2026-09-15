@@ -205,7 +205,8 @@
   <project path="nuttx/openamp/open-amp" name="nuttx_openamp_open-amp"/>
   <project path="packages" name="packages"/>
   <project path="packages/apps" name="packages_apps"/>
-  <project path="packages/ai_agent" name="packages_ai_agent"/>
+  <!-- packages_ai_agent removed: team-vendored copy is linked in from the
+       team repo via contest2026_034_ISoftStoneSmartFashionPI.xml -->
   <project path="packages/demos" name="packages_demos"/>
   <project path="packages/fe/examples" name="packages_fe_examples"/>
   <project path="prebuilts/clang-wasm/linux-x86_64" name="prebuilts_clang_linux_wasm" clone-depth="1"/>

@@ -1,0 +1,32 @@
+#
+# For a description of the syntax of this configuration file,
+# see the file kconfig-language.txt in the NuttX tools repository.
+#
+
+config EXAMPLES_ESP32S3_WATCH_PCF85063
+	tristate "ESP32-S3 PCF85063 RTC Test Example"
+	default n
+	depends on RTC_DRIVER && RTC_PCF85063
+	---help---
+		Enable the ESP32-S3 PCF85063 RTC Test example. This example tests
+		the PCF85063 RTC functionality including time read, time set,
+		alarm functionality, and continuous time reading.
+
+if EXAMPLES_ESP32S3_WATCH_PCF85063
+
+config EXAMPLES_ESP32S3_WATCH_PCF85063_PROGNAME
+	string "Program name"
+	default "esp32s3pcf85063"
+	---help---
+		This is the name of the program that will be used when the NSH ELF
+		program is installed.
+
+config EXAMPLES_ESP32S3_WATCH_PCF85063_PRIORITY
+	int "PCF85063 test task priority"
+	default 100
+
+config EXAMPLES_ESP32S3_WATCH_PCF85063_STACKSIZE
+	int "PCF85063 test stack size"
+	default DEFAULT_TASK_STACKSIZE
+
+endif

@@ -1,0 +1,24 @@
+
+#
+# For a description of the syntax of this configuration file,
+# see the file kconfig-language.txt in the NuttX tools repository.
+#
+config EXAMPLES_ESP32S3_WATCH_BUTTON
+	tristate "ESP32S3 WATCH BUTTON Example"
+	default n
+	---help---
+		ESP32S3 watch button example
+if EXAMPLES_ESP32S3_WATCH_BUTTON
+config EXAMPLES_ESP32S3_WATCH_BUTTON_PROGNAME
+	string "Program name"
+	default "esp32s3button"	
+	---help---
+		This is the name of the program that will be used when the NSH ELF
+		program is installed.
+config EXAMPLES_ESP32S3_WATCH_BUTTON_PRIORITY
+	int "ESP32S3 WATCH BUTTON task priority"
+	default 100
+config EXAMPLES_ESP32S3_WATCH_BUTTON_STACKSIZE
+	int "ESP32S3 WATCH BUTTON stack size"	
+	default DEFAULT_TASK_STACKSIZE
+endif
