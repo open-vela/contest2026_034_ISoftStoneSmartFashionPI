@@ -1,0 +1,24 @@
+
+#
+# For a description of the syntax of this configuration file,
+# see the file kconfig-language.txt in the NuttX tools repository.
+#
+config EXAMPLES_ESP32S3_WATCH_AXP2101
+	tristate "ESP32S3 WATCH AXP2101 Example"
+	default n
+	---help---
+		ESP32S3 watch axp2101 example
+if EXAMPLES_ESP32S3_WATCH_AXP2101
+config EXAMPLES_ESP32S3_WATCH_AXP2101_PROGNAME
+	string "Program name"
+	default "esp32s3axp2101"
+	---help---
+		This is the name of the program that will be used when the NSH ELF
+		program is installed.
+config EXAMPLES_ESP32S3_WATCH_AXP2101_PRIORITY
+	int "ESP32S3 WATCH AXP2101 task priority"
+	default 100
+config EXAMPLES_ESP32S3_WATCH_AXP2101_STACKSIZE
+	int "ESP32S3 WATCH AXP2101 stack size"
+	default DEFAULT_TASK_STACKSIZE
+endif

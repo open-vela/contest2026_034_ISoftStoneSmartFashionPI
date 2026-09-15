@@ -14,8 +14,9 @@
     <linkfile src="board/contest_board" dest="vendor/openvela/boards/contest2026_034_board"/>
     <!-- Team product: board port, watch apps, voice test examples, vendored ai_agent -->
     <linkfile src="board/esp32s3-touch-amoled" dest="nuttx/boards/xtensa/esp32s3/esp32s3-touch-amoled"/>
-    <linkfile src="app_watch" dest="packages/demos/app_watch"/>
-    <linkfile src="app/watch" dest="apps/examples/contest2026_034_watch"/>
+    <linkfile src="app_watch" dest="vendor/watch"/>
+    <linkfile src="app/watch" dest="packages/demos/contest2026_034_watch"/>
+    <linkfile src="examples/esp32s3_watch_axp2101" dest="apps/examples/esp32s3_watch_axp2101"/>
     <linkfile src="examples/esp32s3_watch_button" dest="apps/examples/esp32s3_watch_button"/>
     <linkfile src="examples/esp32s3_watch_pcf85063" dest="apps/examples/esp32s3_watch_pcf85063"/>
     <linkfile src="examples/esp32s3_watch_qmi8658" dest="apps/examples/esp32s3_watch_qmi8658"/>
