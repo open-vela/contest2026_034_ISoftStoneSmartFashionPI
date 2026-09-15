@@ -48,10 +48,13 @@
  * Pre-processor Definitions
  ****************************************************************************/
 
-#define LOGO_DISPLAY_TIME      5000   /* 开机logo最长显示时间(ms)，超时强制切换 */
-#define ANIMATION_DISPLAY_TIME 5000   /* 开机动画最长显示时间(ms)，超时强制切换 */
-#define ANIM_CHECK_PERIOD_MS   100    /* 动画播放完成检测周期(ms) */
-#define LOGO_CHECK_PERIOD_MS   100    /* logo播放完成检测周期(ms) */
+/* 兜底超时：410x502 全屏GIF软解码+渲染每帧约130ms，播一遍90帧约需12s，
+ * 5s 兜底会在播完一遍前就强制切换（第二遍不再重播但画面被截断），
+ * 因此放宽到 20s，仅作为 READY 事件异常（资源损坏）时的保险。 */
+#define LOGO_DISPLAY_TIME      20000  /* 开机logo最长显示时间(ms)，超时强制切换 */
+#define ANIMATION_DISPLAY_TIME 20000  /* 开机动画最长显示时间(ms)，超时强制切换 */
+#define ANIM_CHECK_PERIOD_MS   30     /* 动画播放完成检测周期(ms) */
+#define LOGO_CHECK_PERIOD_MS   30     /* logo播放完成检测周期(ms) */
 
 /* ai_agent 自启动参数（与 packages/ai_agent Makefile 配置对齐） */
 #define AGENT_TASK_PRIORITY    100
@@ -356,16 +359,27 @@ static void goto_next_state(void)
         current_state = STATE_SHOW_ANIM;
         WATCH_DBG_LOG("[LAUNCHER] state: logo done -> animation");
 
-        /* 销毁logo并显示动画（根据UI模式选择对应的动画） */
+        /* 先初始化动画页并置于 logo 页下方：首帧在 set_src 内同步
+         * 解码完成，随后渲染一轮仍显示 logo 最后一帧；删除 logo 页
+         * 后再把动画页提到顶层渲染——消除“删 logo 页 → 动画首帧
+         * 渲染”之间的黑屏空窗，画面从 logo 末帧直接过渡到动画。 */
         if (g_boot_ui_mode == UI_MODE_WATCH)
           {
-            watch_boot_logo_deinit(current_obj);
+            lv_obj_t *logo_obj = current_obj;
             current_obj = watch_boot_animation_init(content_area);
+            lv_obj_move_background(current_obj);
+            lv_task_handler();
+            watch_boot_logo_deinit(logo_obj);
+            lv_obj_move_foreground(current_obj);
           }
         else
           {
-            boot_logo_deinit(current_obj);
+            lv_obj_t *logo_obj = current_obj;
             current_obj = boot_animation_init(content_area);
+            lv_obj_move_background(current_obj);
+            lv_task_handler();
+            boot_logo_deinit(logo_obj);
+            lv_obj_move_foreground(current_obj);
           }
         lv_task_handler();
         WATCH_DBG_LOG("[LAUNCHER] anim displayed");
