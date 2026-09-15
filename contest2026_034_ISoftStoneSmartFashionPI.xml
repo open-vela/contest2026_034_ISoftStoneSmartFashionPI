@@ -26,5 +26,8 @@
     <linkfile src="examples/volc_e2e_voice" dest="apps/examples/volc_e2e_voice"/>
     <!-- ai_agent is vendored (contains team voice stack); project removed from openvela.xml -->
     <linkfile src="vendor/ai_agent" dest="packages/ai_agent"/>
+    <!-- esp-hal-3rdparty vendored with team fixes (clk_ctrl_os/esp_mem/esp_mbedtls等)，
+         构建系统检测到目录已存在则跳过下载 -->
+    <linkfile src="vendor/esp-hal-3rdparty" dest="nuttx/arch/xtensa/src/esp32s3/esp-hal-3rdparty"/>
   </project>
 </manifest>
