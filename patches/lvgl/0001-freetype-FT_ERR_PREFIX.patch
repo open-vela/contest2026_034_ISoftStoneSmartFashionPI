@@ -1,0 +1,33 @@
+From a810467505e17474650c4ceff941dcf8dd711622 Mon Sep 17 00:00:00 2001
+From: ybyanj <ybyanj@isoftstone.com>
+Date: Wed, 15 Jul 2026 03:49:47 -0400
+Subject: [PATCH] =?UTF-8?q?=E5=9C=A8freetype=E5=BA=93=E4=B8=AD=E6=B7=BB?=
+ =?UTF-8?q?=E5=8A=A0FT=5FERR=5FPREFIX=E5=AE=8F?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Change-Id: I0410642e186192c7ad9dba22cef59214e082581d
+---
+ src/libs/freetype/lv_ftsystem.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/src/libs/freetype/lv_ftsystem.c b/src/libs/freetype/lv_ftsystem.c
+index ee0e836b6..7a671261b 100644
+--- a/src/libs/freetype/lv_ftsystem.c
++++ b/src/libs/freetype/lv_ftsystem.c
+@@ -22,6 +22,11 @@
+  *      DEFINES
+  *********************/
+ 
++/* Fix FT_ERR_PREFIX for FT_THROW() macro compatibility */
++#ifndef FT_ERR_PREFIX
++#define FT_ERR_PREFIX  FT_Err_
++#endif
++
+ /* The macro FT_COMPONENT is used in trace mode.  It is an implicit
+  * parameter of the FT_TRACE() and FT_ERROR() macros, used to print/log
+  * messages during execution.
+-- 
+2.43.0
+
