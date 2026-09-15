@@ -534,23 +534,9 @@ static void volc_event_callback(volc_callback_type_t type, const char *data)
         if (data) {
             syslog(LOG_INFO, "[TONG] ASR: \"%s\"\n", data);
 
-            /* 智能家居指令检测（优先于UI模式切换） */
-            int hc_ret = home_control_voice_execute(data);
-            if (hc_ret == HOME_CTRL_NET_FAIL) {
-                /* 匹配到设备但网络失败 */
-                syslog(LOG_INFO,
-                    "[TONG] home ctrl net fail: \"%s\"\n", data);
-                volc_play_local_wav(HOME_CTRL_FAIL_WAV);
-                break;
-            } else if (hc_ret == HOME_CTRL_NO_MATCH) {
-                /* 有开关动作词但未匹配到设备 */
-                syslog(LOG_INFO,
-                    "[TONG] home ctrl no match: \"%s\"\n", data);
-                volc_play_local_wav(HOME_CTRL_NOT_FOUND_WAV);
-                break;
-            }
-            /* HOME_CTRL_OK: 指令成功，继续正常流程
-             * HOME_CTRL_NONE: 无关指令，继续UI模式切换检测 */
+            /* 智能家居指令已在 tong_ai_ws.c EVENT_ASR_RESPONSE 处理
+             * （本地执行+提示音+抑制服务端TTS），此处不再重复执行，
+             * 避免同一指令被二次发送。 */
 
             int matched = 0;
             /* 策略1: 完整短语匹配（含发音变体） */
