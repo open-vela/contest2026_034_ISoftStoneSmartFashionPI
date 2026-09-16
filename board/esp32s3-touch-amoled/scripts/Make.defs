@@ -20,6 +20,20 @@
 #
 ############################################################################
 
+# ---- contest2026_034: 公共仓 patch 构建期守卫 -----------------------------
+# 本作品对 nuttx/apps/lvgl 的修改以 patch 形式随仓携带（patches/ 目录），
+# 由 tools/apply_patches.sh 应用（flash_esp32s3.sh 编译时也会自动调用）。
+# apply 成功后会在 openvela 工作区根目录写入 .contest_patches_applied 标记；
+# 标记缺失说明 patch 未打，继续编译会因缺少驱动（CO5300/ES7210 等）而失败。
+CONTEST_PATCH_MARKER := $(abspath $(TOPDIR)/..)/.contest_patches_applied
+ifeq ($(wildcard $(CONTEST_PATCH_MARKER)),)
+$(warning ****************************************************************************)
+$(warning [contest2026_034] 公共仓 patch 尚未应用，编译大概率失败！)
+$(warning [contest2026_034] 请先运行: contest2026_034_ISoftStoneSmartFashionPI/tools/apply_patches.sh)
+$(warning [contest2026_034] 或直接使用一键脚本: contest2026_034_ISoftStoneSmartFashionPI/flash_esp32s3.sh -n)
+$(warning ****************************************************************************)
+endif
+
 include $(TOPDIR)/.config
 include $(TOPDIR)/tools/Config.mk
 include $(TOPDIR)/tools/esp32s3/Config.mk
