@@ -1,36 +1,61 @@
-# contest2026_034_ISoftStoneSmartFashionPI
+# 软通潮玩智能手表（iSoftStone Smart Fashion PI）
 
-👋 欢迎参加 **2026 首届 openvela AI 硬件开发者大赛**！
+> 2026 首届 openvela AI 硬件开发者大赛参赛作品
+> 队伍编号 `034`，仓库 `contest2026_034_ISoftStoneSmartFashionPI`
 
-这是组委会为你的队伍创建的**专属参赛仓库**（本仓为样例/模板，队伍编号 `034`；你看到的将是你自己的 `contest2026_<编号>_<队伍名>`）。比赛期间，你的全部参赛代码、打包产物与 AI Coding 日志都提交到这里。
+## 一、作品简介
 
-> 本仓既是「代码仓」，又内置了一键拉取整套 openvela 工程的 `repo` 清单（manifest）。你只需跟它打交道，**自始至终只动一个文件夹**。
+基于 openvela（NuttX）在 **ESP32-S3 触摸 AMOLED 开发板**（410×502 CO5300 AMOLED 竖屏）上实现的 AI 潮玩智能手表。它将"潮玩电子宠物"与"实用智能手表"合为一体：
 
----
+- **双 UI 模式，无重启切换**：「潮玩表情模式」下设备是一个有情绪的伙伴——20+ 种 GIF 表情（待机、聆听、思考、说话、微笑、睡眠、生病、得意……）随语音交互和系统事件实时变化；「手表模式」下则是完整的智能手表——表盘、天气、闹钟（含响铃）、秒表、运动、手电筒、设置。两种模式可在设置中或长按按键 10 秒即时切换，无需重启。
+- **小通 AI 语音助手**：支持唤醒词唤醒、流式语音对话（集成小米 MiMo 语音与火山引擎端到端语音两条链路），可语音控制屏幕亮度、音量、智能家居设备（如"打开厨房灯/电视"），API Key 支持设备端配置并持久化。
+- **情绪化的系统反馈**：低电量、充电、跌倒/扶正（QMI8658 六轴检测）等事件会注入提示词，由大模型生成不固定的人格化文案播报，并联动 sick/proud 等表情——不是冰冷的提示音，而是"有性格"的反应。
+- **完整的系统能力**：WiFi 自动连接/重连、SNTP 时间同步、自动熄屏与抬腕亮屏、三级待机、MWDT 看门狗防卡死、SD 卡日志、音量/亮度本地调节并与语音会话同步。
 
-## 一、先读这些官方文档
+## 二、选题方向
 
-**通用（所有赛道必读）：**
+**AI 硬件产品创新**（融合手表应用创新）。
 
-| 文档                                                                                                                                     | 用途                                           |
-| ---------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
-| [《大赛总览》](https://github.com/open-vela/docs/blob/dev-ai-contest-2026/zh-cn/contest_2026/contest_overview.md)                        | 赛道、流程、评分、资源，建议先通读             |
-| [《参赛代码提交指南》](https://github.com/open-vela/docs/blob/dev-ai-contest-2026/zh-cn/contest_2026/code_submission_guide.md)           | 仓库获取、提交流程、时间与权限（**以此为准**） |
-| [《AI Coding 日志归集与提交手册》](https://github.com/open-vela/docs/blob/dev-ai-contest-2026/zh-cn/contest_2026/ai_coding_log_guide.md) | 如何导出 AI 对话日志并提交到 `logs/`           |
+理由：本作品不是单一的手表应用，而是一台完整的 AI 硬件整机——从板级 BSP（显示/触摸/音频/PMU/传感器驱动适配）、系统服务（电源管理、看门狗、日志），到端侧 AI 语音交互栈与情绪化 UI，均由团队在 openvela 上构建，符合 AI 硬件赛道"端侧智能 + 完整产品形态"的定位。
 
-**按你的赛道选读（三选一）：**
+## 三、目录结构
 
-| 赛道                  | 教程导航                                                                                                                                                 |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 快应用 / 手表应用创新 | [快应用教程导航](https://github.com/open-vela/docs/blob/dev-ai-contest-2026/zh-cn/contest_2026/quickapp/quickapp_guide_index.md)                         |
-| AI 硬件产品创新       | [AI 硬件赛道教程导航](https://github.com/open-vela/docs/blob/dev-ai-contest-2026/zh-cn/contest_2026/ai_hardware/ai_hardware_guide_index.md)              |
-| 新硬件适配            | [新硬件适配赛道教程导航](https://github.com/open-vela/docs/blob/dev-ai-contest-2026/zh-cn/contest_2026/hardware_porting/hardware_porting_guide_index.md) |
+本仓通过 manifest `<linkfile>` 把作品代码软链进 openvela 编译树，**无需改动 packages/nuttx/vendor 等公共仓的仓内内容**：
 
----
+```text
+board/esp32s3-touch-amoled/   — 板级适配：CO5300 AMOLED、FT3168 触摸、AXP2101 电源、
+                                QMI8658 六轴、ES7210 音频 ADC、按键、defconfig、开机脚本 rcS
+                                → 软链至 nuttx/boards/xtensa/esp32s3/esp32s3-touch-amoled
+app/watch/                    — 手表主应用（LVGL）：开机 Logo/动画、表情模式、手表模式 UI、
+                                设置（WiFi/亮度/熄屏/系统/关于）、语音交互界面、双模式切换
+                                → 软链至 packages/demos/contest2026_034_watch
+app_watch/                    — 手表页面框架（openvela vendor/watch 的定制副本）：
+                                表盘/天气/闹钟/秒表/运动/手电筒等页面与资源管理
+                                → 软链至 vendor/watch
+examples/                     — 8 个硬件 bring-up 与语音链路测试程序：
+                                esp32s3_watch_{axp2101,button,pcf85063,qmi8658,wifi}、
+                                mimo_voice_test、mimo_stream_voice_test、volc_e2e_voice
+                                → 软链至 apps/examples/
+vendor/ai_agent/              — 小通 AI 语音栈：唤醒、ASR/LLM/TTS、MiMo 与火山引擎 E2E 接入
+                                → 软链至 packages/ai_agent
+vendor/esp-hal-3rdparty/      — ESP32-S3 HAL（含团队修复：clk_ctrl_os / esp_mem / esp_mbedtls 等）
+                                → 软链至 nuttx/arch/xtensa/src/esp32s3/esp-hal-3rdparty
+bootloader/                   — ESP32-S3 bootloader 与 partition-table 二进制（烧录用）
+patches/                      — 团队对公共仓的必要修改，以 patch 文件形式携带：
+                                nuttx（新增 PCF85063/AXP2101/QMI8658/CO5300/ES7210/ES8311 驱动、
+                                      I2S TDM、PSRAM 堆、SDMMC 修复）、
+                                apps（nxplayer/nxrecorder 修复）、
+                                lvgl（FreeType FT_ERR_PREFIX 兼容宏）
+tools/apply_patches.sh        — 一键把 patches/ 打入本地工作区（幂等，可重复执行）
+tools/                        — 素材生成脚本（Logo/GIF 转 C 数组、提示音生成等）
+flash_esp32s3.sh              — 编译 / LittleFS 打包 / 烧录一键脚本（见"运行方式"）
+logs/cgke/                    — AI Coding 日志（claude-code、qoder 会话导出）
+app/hello_app/、quickapp/、board/contest_board/  — 组委会模板骨架（未使用，保留占位）
+```
 
-## 二、第一步：拉取完整工程
+## 四、运行方式
 
-用组委会提供的命令一键拉取「openvela 全量源码 + 你的专属仓」：
+### 1. 拉取完整工程
 
 ```bash
 repo init -u https://github.com/open-vela/contest2026_034_ISoftStoneSmartFashionPI \
@@ -38,111 +63,55 @@ repo init -u https://github.com/open-vela/contest2026_034_ISoftStoneSmartFashion
 repo sync -c -j8
 ```
 
-同步后，你的整个仓库位于工作区的 `contest2026_034_ISoftStoneSmartFashionPI/`，openvela 全量源码在外层（`nuttx/`、`apps/`、`packages/`、`vendor/` 等）。
+同步后本仓位于工作区 `contest2026_034_ISoftStoneSmartFashionPI/`，openvela 全量源码（含预置交叉工具链 prebuilts）在外层。
 
----
+### 2. 打入公共仓补丁（每次 sync 后执行一次）
 
-## 三、第二步：在哪里写代码
-
-**只在自己的仓目录 `contest2026_034_ISoftStoneSmartFashionPI/` 里开发。** 不同作品形态放在对应子目录，manifest 会通过 `<linkfile>` 把它们**软链**到 openvela 编译树该在的位置——你不用手动 copy：
-
-| 作品形态 | 你的代码放这里             | 系统自动映射到                                 |
-| -------- | -------------------------- | ---------------------------------------------- |
-| 应用     | `app/hello_app/`           | `packages/demos/contest2026_034_hello_app`     |
-| 快应用   | `quickapp/hello_quickapp/` | `packages/apps/contest2026_034_hello_quickapp` |
-| 板级适配 | `board/contest_board/`     | `vendor/openvela/boards/contest2026_034_board` |
-
-> 用不到的形态目录可以删掉；新增作品时按同样规则加子目录，并在 `contest2026_034_ISoftStoneSmartFashionPI.xml` 里补一条 `<linkfile>` 映射即可。**生产仓库（packages/nuttx/vendor 等）零改动。**
-
-建议仓库目录约定（便于评委定位）：
-
-```text
-app/ | quickapp/ | board/   # 你的作品代码
-logs/                       # AI Coding 日志（主动导出后提交，格式见 logs/README.md）
-README.md                   # 作品说明（提交前请改成你自己的，见第六节）
-```
-
-> 仓内附带了一个 `.gitignore.example`，给出了**编译产物**等不需要进仓的文件示例。如需启用，`cp .gitignore.example .gitignore` 后按需增删即可。**注意 `logs/` 下最终导出的 AI Coding 日志必须提交，不要忽略。**
->
-> `logs/` 的目录结构与提交格式见 [logs/README.md](logs/README.md)。
-
----
-
-## 四、第三步：编译与运行
-
-编译/运行步骤随作品形态不同而不同，请参考你所在赛道的教程导航：
-
-- 快应用 / 手表应用：[快应用教程导航](https://github.com/open-vela/docs/blob/dev-ai-contest-2026/zh-cn/contest_2026/quickapp/quickapp_guide_index.md)（含模拟器与开发板部署）。
-- AI 硬件产品创新：[AI 硬件赛道教程导航](https://github.com/open-vela/docs/blob/dev-ai-contest-2026/zh-cn/contest_2026/ai_hardware/ai_hardware_guide_index.md)（环境搭建、编译烧录、Skill 开发）。
-- 新硬件适配：[新硬件适配赛道教程导航](https://github.com/open-vela/docs/blob/dev-ai-contest-2026/zh-cn/contest_2026/hardware_porting/hardware_porting_guide_index.md)（BSP 移植、最小 NSH 基线）。
-
-子目录已通过 manifest 中的 `<linkfile>` 软链进 openvela 编译树，因此构建在 openvela 工作区**根目录**（即你这个仓的上一级）进行。openvela 使用 `build.sh` 作为统一入口，接收一个 **board config 路径**作为参数：
+对 nuttx / apps / lvgl 的修改以 patch 形式随仓携带，构建前应用：
 
 ```bash
-# 进入 openvela 工作区根目录（你的仓的上一级）
-cd ..
-
-# 通用语法：第一个参数是 board config 路径，第二个参数可以是 menuconfig / distclean 等
-./build.sh <board-config-path> [menuconfig|distclean] [-j8]
+contest2026_034_ISoftStoneSmartFashionPI/tools/apply_patches.sh
 ```
 
-> 具体的 board config 路径、目标产物、模拟器/真机部署方式请以你所在赛道的教程导航为准。本仓 `app/` `quickapp/` `board/` 三个示例骨架对应的 Kconfig 选项可通过 `menuconfig` 启用。
+脚本幂等：已应用过的 patch 会自动跳过。
 
----
+### 3. 编译
 
-## 五、第四步：提交作品
+在**工作区根目录**执行：
 
-1. **fork** 你的专属仓 → 开发 → `git commit` 并推送 → 向专属仓发起 **Pull Request**，可**自行 review 并合入**（无需等组委会）。
-2. **AI Coding 日志**：与 AI 工具的对话会自动记录到本机 staging（不会自动上传），需你**主动导出/打包**选定会话到仓内 `logs/` 目录后一并提交。详见[《AI Coding 日志归集与提交手册》](https://github.com/open-vela/docs/blob/dev-ai-contest-2026/zh-cn/contest_2026/ai_coding_log_guide.md)。
-3. 若需改动 **nuttx 等公共仓库**，不在本仓改，而是 fork 对应公共仓、以 PR 提交到 `dev-ai-contest-2026` 分支，由组委会 review 后合入。
+```bash
+./build.sh contest2026_034_ISoftStoneSmartFashionPI/board/esp32s3-touch-amoled/configs/openvela -j8
+```
 
-> ⏰ **提交作品截止：9 月 20 日**。截止后统一收回 push 权限，仍可查看 / clone。
->
-> 获奖后再按要求将作品 PR 至 openvela 上游对应仓库（走标准 PR + CI 流程）。
+编译产物为 `nuttx/nuttx.bin`。
 
-### 关于 PR 与 CLA
+### 4. 烧录与运行（真机）
 
-- 本仓所有改动通过 **Pull Request** 合入（分支保护强制，可自行合入自己的 PR）。
-- 首次贡献需在[**官网签署 CLA**](https://openvela.com/#/community/cla)；PR 上会自动跑 `cla/signature` 检查，在官网签署成功后，在 PR 评论 `/check-cla` 复检即可通过。
+使用仓内一键脚本（自动处理工具链 PATH、bootloader 同步、LittleFS 素材镜像打包）：
 
----
+```bash
+# 编译 + 打包 LittleFS + 刷写固件和素材（默认串口 /dev/ttyACM0，可用 -P 指定）
+contest2026_034_ISoftStoneSmartFashionPI/flash_esp32s3.sh -a -P /dev/ttyACM0
 
-## 六、提交前：把本 README 改成你的作品说明
+# 常用子命令：-n 只编译；-s 只刷已有固件；-f 只打包刷素材；-m menuconfig；-c distclean
+contest2026_034_ISoftStoneSmartFashionPI/flash_esp32s3.sh -h
+```
 
-本文件目前是组委会给的**使用说明书**。**作品提交前，请把它替换成你自己作品的说明**，方便评委快速了解你做了什么、怎么跑起来。建议至少包含以下内容：
+依赖：`esptool.py`（烧录）、`littlefs-python`（素材镜像打包，`pip3 install littlefs-python`）。
 
-```markdown
-# <你的作品名>
+烧录完成上电后：开机 Logo → 开机动画 → 默认进入潮玩表情模式，WiFi 自动重连并同步网络时间；说唤醒词即可与小通 AI 对话，长按按键 10 秒或在设置中切换到手表模式。
 
-## 一、作品简介
-<一句话/一段话说明这个作品是什么、解决什么问题、亮点在哪>
-
-## 二、选题方向
-<快应用 / 手表应用创新 ｜ AI 硬件产品创新 ｜ 新硬件适配 ｜ 自定方向，并简述理由>
-
-## 三、目录结构
-<列出你这个仓里各目录/文件的作用，例如：>
-- `app/xxx/`        — <说明>
-- `board/xxx/`      — <说明>
-- `quickapp/xxx/`   — <说明>
-- `logs/`           — AI Coding 日志
-- `docs/` 或其他    — <说明>
-
-## 四、运行方式
-<拉取工程后，如何编译、烧录/部署、运行的完整步骤；最好能让评委照着一步步复现>
+> 语音功能首次使用需在设备上配置小通 AI 的 API Key（设置内持久化保存）。
 
 ## 五、AI Coding 使用说明
-<说明本作品如何借助 AI 辅助开发：
-- 在需求拆解 / 方案设计 / 编码 / 调试 / 文档等环节如何与 AI 协作；
-- AI 对开发效率或质量带来的实际帮助。
-完整对话日志见 logs/ 目录>
-```
 
-> 提示：将会根据「作品本身 + 你的 README 说明 + `logs/` 里的 AI Coding 日志」来理解和评估你的作品，README 写清楚很重要。
+本作品全程以 AI 结对开发方式完成，完整对话日志见 `logs/cgke/`（2026-06 至 2026-09，含 claude-code 与 qoder 会话，按日期归档）。
 
----
+AI 在各环节的协作方式：
 
-## 附：仓库命名规范
+- **需求拆解与方案设计**：双 UI 模式架构、表情状态机、低电量人格化交互链路、三级待机/熄屏策略等，均先与 AI 讨论方案、对比取舍后再落地。
+- **编码**：LVGL 页面（表盘、设置、WiFi、闹钟等）、板级驱动适配（PCF85063/AXP2101/QMI8658/CO5300/ES7210）、语音链路接入等大量代码由 AI 生成初稿，人工 review 后迭代。
+- **疑难调试**：WiFi 连接卡死、LVGL 定时器中直接操作 I2C 的竞争隐患、GIF 的 NETSCAPE 循环扩展语义导致动画播两遍、defconfig 与增量编译混用导致固件无法启动等问题，借助 AI 定位根因并修复。
+- **工程化与文档**：开机 Logo 旋转适配脚本、GIF/字体/提示音资源生成脚本、刷机脚本防护逻辑、移植说明文档等由 AI 辅助完成。
 
-`contest2026_<编号>_<队伍名>` — 编号三位零填充；队名 slug（全小写、英文/拼音、连字符）。例：`contest2026_034_ISoftStoneSmartFashionPI`。
-（仓库由组委会统一创建，**每队仅一个仓**，无需自行命名。）
+AI 带来的实际收益：在约 3 个月内完成了从 BSP 适配到整机产品的 100+ 次迭代提交，大量样板代码（资源转换、页面脚手架）近乎零成本产出；调试阶段 AI 对日志的分析显著缩短了疑难 bug 的定位时间。
