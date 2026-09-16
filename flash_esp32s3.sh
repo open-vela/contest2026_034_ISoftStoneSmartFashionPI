@@ -207,13 +207,27 @@ ensure_bootloader_bins() {
     log_info "已同步 bootloader / partition-table 到 nuttx/"
 }
 
-# 把本仓库 app/*, board/* 映射到 openvela 工作树（代替 manifest linkfile）
-# 幂等：已存在且指向正确则跳过。
+# 把本仓库 app/*, board/* 等映射到 openvela 工作树（manifest linkfile 的兜底，
+# 覆盖 manifest 里全部 linkfile 条目；sync 已建好的链接会自动跳过）。幂等。
 ensure_app_symlinks() {
     # <目标链接>:<指向的源>（源为相对于目标链接所在目录的相对路径）
     local links=(
-        "${PROJECT_ROOT}/packages/demos/contest2026_034_watch:../../contest2026_034_ISoftStoneSmartFashionPI/app/watch"
         "${PROJECT_ROOT}/packages/demos/contest2026_034_hello_app:../../contest2026_034_ISoftStoneSmartFashionPI/app/hello_app"
+        "${PROJECT_ROOT}/packages/apps/contest2026_034_hello_quickapp:../../contest2026_034_ISoftStoneSmartFashionPI/quickapp/hello_quickapp"
+        "${PROJECT_ROOT}/vendor/openvela/boards/contest2026_034_board:../../../contest2026_034_ISoftStoneSmartFashionPI/board/contest_board"
+        "${PROJECT_ROOT}/nuttx/boards/xtensa/esp32s3/esp32s3-touch-amoled:../../../../contest2026_034_ISoftStoneSmartFashionPI/board/esp32s3-touch-amoled"
+        "${PROJECT_ROOT}/vendor/watch:../contest2026_034_ISoftStoneSmartFashionPI/app_watch"
+        "${PROJECT_ROOT}/packages/demos/contest2026_034_watch:../../contest2026_034_ISoftStoneSmartFashionPI/app/watch"
+        "${PROJECT_ROOT}/apps/examples/esp32s3_watch_axp2101:../../contest2026_034_ISoftStoneSmartFashionPI/examples/esp32s3_watch_axp2101"
+        "${PROJECT_ROOT}/apps/examples/esp32s3_watch_button:../../contest2026_034_ISoftStoneSmartFashionPI/examples/esp32s3_watch_button"
+        "${PROJECT_ROOT}/apps/examples/esp32s3_watch_pcf85063:../../contest2026_034_ISoftStoneSmartFashionPI/examples/esp32s3_watch_pcf85063"
+        "${PROJECT_ROOT}/apps/examples/esp32s3_watch_qmi8658:../../contest2026_034_ISoftStoneSmartFashionPI/examples/esp32s3_watch_qmi8658"
+        "${PROJECT_ROOT}/apps/examples/esp32s3_watch_wifi:../../contest2026_034_ISoftStoneSmartFashionPI/examples/esp32s3_watch_wifi"
+        "${PROJECT_ROOT}/apps/examples/mimo_stream_voice_test:../../contest2026_034_ISoftStoneSmartFashionPI/examples/mimo_stream_voice_test"
+        "${PROJECT_ROOT}/apps/examples/mimo_voice_test:../../contest2026_034_ISoftStoneSmartFashionPI/examples/mimo_voice_test"
+        "${PROJECT_ROOT}/apps/examples/volc_e2e_voice:../../contest2026_034_ISoftStoneSmartFashionPI/examples/volc_e2e_voice"
+        "${PROJECT_ROOT}/packages/ai_agent:../contest2026_034_ISoftStoneSmartFashionPI/vendor/ai_agent"
+        "${PROJECT_ROOT}/nuttx/arch/xtensa/src/esp32s3/esp-hal-3rdparty:../../../../../contest2026_034_ISoftStoneSmartFashionPI/vendor/esp-hal-3rdparty"
     )
     local entry link target parent
     for entry in "${links[@]}"; do
