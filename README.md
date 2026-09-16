@@ -65,29 +65,9 @@ repo sync -c -j8
 
 同步后本仓位于工作区 `contest2026_034_ISoftStoneSmartFashionPI/`，openvela 全量源码（含预置交叉工具链 prebuilts）在外层。
 
-### 2. 打入公共仓补丁（每次 sync 后执行一次）
+### 2. 编译烧录（一键脚本，推荐）
 
-对 nuttx / apps / lvgl 的修改以 patch 形式随仓携带，构建前应用：
-
-```bash
-contest2026_034_ISoftStoneSmartFashionPI/tools/apply_patches.sh
-```
-
-脚本幂等：已应用过的 patch 会自动跳过。
-
-### 3. 编译
-
-在**工作区根目录**执行：
-
-```bash
-./build.sh contest2026_034_ISoftStoneSmartFashionPI/board/esp32s3-touch-amoled/configs/openvela -j8
-```
-
-编译产物为 `nuttx/nuttx.bin`。
-
-### 4. 烧录与运行（真机）
-
-使用仓内一键脚本（自动处理工具链 PATH、bootloader 同步、LittleFS 素材镜像打包）：
+使用仓内一键脚本（自动应用公共仓 patch、处理工具链 PATH、bootloader 同步、LittleFS 素材镜像打包）：
 
 ```bash
 # 编译 + 打包 LittleFS + 刷写固件和素材（默认串口 /dev/ttyACM0，可用 -P 指定）
@@ -98,6 +78,18 @@ contest2026_034_ISoftStoneSmartFashionPI/flash_esp32s3.sh -h
 ```
 
 依赖：`esptool.py`（烧录）、`littlefs-python`（素材镜像打包，`pip3 install littlefs-python`）。
+
+### 3. 或者：手动分步执行
+
+```bash
+# a. 打入公共仓补丁（每次 sync 后执行一次，幂等）
+contest2026_034_ISoftStoneSmartFashionPI/tools/apply_patches.sh
+
+# b. 在**工作区根目录**编译，产物为 nuttx/nuttx.bin
+./build.sh contest2026_034_ISoftStoneSmartFashionPI/board/esp32s3-touch-amoled/configs/openvela -j8
+```
+
+> 说明：对 nuttx / apps / lvgl 公共仓的修改以 patch 形式随仓携带（`patches/` 目录），构建前必须应用。`flash_esp32s3.sh` 会自动完成这一步；若直接用 `./build.sh` 且忘了打 patch，构建一开始就会打印醒目的提示信息。
 
 烧录完成上电后：开机 Logo → 开机动画 → 默认进入潮玩表情模式，WiFi 自动重连并同步网络时间；说唤醒词即可与小通 AI 对话，长按按键 10 秒或在设置中切换到手表模式。
 

@@ -282,7 +282,14 @@ action_menuconfig() {
 action_build_nuttx() {
     log_info "编译 NuttX..."
 
-    # 先确保应用链接存在（否则 packages/demos/Kconfig 里拿不到 watch 的 Kconfig，
+    # 先确保公共仓（nuttx/apps/lvgl）的 patch 已应用（幂等，已打过会自动跳过），
+    # 否则新驱动（CO5300/ES7210 等）缺失会导致编译失败
+    if [ -x "${TEAM_DIR}/tools/apply_patches.sh" ]; then
+        log_info "检查/应用公共仓 patch..."
+        "${TEAM_DIR}/tools/apply_patches.sh"
+    fi
+
+    # 再确保应用链接存在（否则 packages/demos/Kconfig 里拿不到 watch 的 Kconfig，
     # 导致 CONFIG_EXAMPLES_CONTEST2026_WATCH_BOOT 只在 defconfig 里写了但进不了 .config）
     ensure_app_symlinks
 
